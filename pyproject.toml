@@ -21,7 +21,7 @@ tool-proxy = [
     "requests>=2.32",
 ]
 litellm = [
-    "litellm>=1.50",
+    "litellm[proxy]>=1.50",
 ]
 dev = [
     "pytest>=8.0",
@@ -34,6 +34,7 @@ dev = [
 llm-router-generate = "llm_router.generate_config:main"
 llm-router-node-agent = "llm_router.node_agent.main:cli"
 llm-router-tool-proxy = "llm_router.tool_proxy.service:cli"
+llm-router-dashboard = "llm_router.dashboard:cli"
 
 [build-system]
 requires = ["hatchling"]

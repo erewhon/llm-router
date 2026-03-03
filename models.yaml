@@ -20,6 +20,20 @@ nodes:
     agent_port: 8100
 
 models:
+  gpt-oss-120b:
+    hf_repo: gpt-oss-120b
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 50
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - gpt-oss
+    capabilities:
+      - text
+      - tool_calling
+
   qwen3-30b:
     hf_repo: Qwen/Qwen3-30B-A3B
     backend: vllm
@@ -32,6 +46,7 @@ models:
       - medium-research
     capabilities:
       - text
+      - tool_calling
     vllm_args:
       tool_call_parser: qwen3_xml
 
@@ -47,6 +62,7 @@ models:
       - large-research
     capabilities:
       - text
+      - tool_calling
     vllm_args:
       tool_call_parser: qwen3_xml
 
@@ -66,6 +82,7 @@ models:
     capabilities:
       - text
       - vision
+      - tool_calling
     vllm_args:
       tool_call_parser: llama3_json
 
@@ -80,6 +97,7 @@ models:
       - small-coding
     capabilities:
       - text
+      - tool_calling
     vllm_args:
       tool_call_parser: mistral
 
@@ -95,5 +113,6 @@ models:
       - delphi-default
     capabilities:
       - text
+      - tool_calling
     vllm_args:
       max_model_len: 32768

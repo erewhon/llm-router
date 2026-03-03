@@ -1,0 +1,80 @@
+# systemd unit for LiteLLM proxy with sandboxing
+# Install: sudo cp litellm-proxy.service /etc/systemd/system/litellm-proxy.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now litellm-proxy
+
+[Unit]
+Description=LiteLLM Proxy (LLM Router)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+ExecStart=/home/erewhon/Projects/erewhon/llm-router/.venv/bin/litellm \
+    --config /home/erewhon/Projects/erewhon/llm-router/deploy/litellm/config.yaml \
+    --port 4010
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+Environment=LITELLM_MASTER_KEY=sk-litellm-master
+Environment=LITELLM_LOG_LEVEL=INFO
+
+# --- Sandboxing ---
+
+# Run as a transient system user (no login, no home)
+DynamicUser=yes
+
+# Read-only access to /usr, /boot, /etc; no access to /home except what we bind
+ProtectSystem=strict
+
+# Private /tmp and /var/tmp
+PrivateTmp=yes
+
+# Empty /home, then bind-mount only what we need on top
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/deploy/litellm/config.yaml
+BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+
+# No kernel tunables, module loading, or hardware access
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# Restrict capabilities and privilege escalation
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# Restrict system calls to a safe set
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount
+SystemCallArchitectures=native
+
+# Restrict address families to IP only (no Unix needed beyond basics)
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+# Private /dev with only null, zero, urandom
+PrivateDevices=yes
+
+# Memory deny write+execute (no JIT)
+MemoryDenyWriteExecute=no
+
+# Lock personality to Linux
+LockPersonality=yes
+
+# Limit file creation to not-setuid/setgid
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

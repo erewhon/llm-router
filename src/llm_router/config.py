@@ -13,12 +13,14 @@ REGISTRY_PATH = Path(__file__).parents[2] / "models.yaml"
 class BackendType(StrEnum):
     VLLM = "vllm"
     LLAMACPP = "llamacpp"
+    LMSTUDIO = "lmstudio"
 
 
 class ModelCapability(StrEnum):
     TEXT = "text"
     VISION = "vision"
     AUDIO = "audio"
+    TOOL_CALLING = "tool_calling"
 
 
 class GpuType(StrEnum):
@@ -67,6 +69,9 @@ class ModelDefinition(BaseModel):
     # For llamacpp backend
     gguf_file: str | None = None
 
+    # For external backends (lmstudio, etc.) — custom port
+    api_port: int | None = None
+
     @model_validator(mode="after")
     def validate_node_or_multi(self) -> "ModelDefinition":
         if not self.node and not self.multi_node:
@@ -100,6 +105,8 @@ class ModelRegistry(BaseModel):
             host = self.nodes[head].host
         else:
             host = self.get_node(model_id).host
+        if model.api_port:
+            return f"http://{host}:{model.api_port}/v1"
         if model.tool_proxy:
             return f"http://{host}:5392/v1"
         return f"http://{host}:5391/v1"

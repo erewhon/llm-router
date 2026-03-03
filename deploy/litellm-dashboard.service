@@ -1,0 +1,62 @@
+# systemd unit for LLM Router dashboard with sandboxing
+# Install: sudo cp litellm-dashboard.service /etc/systemd/system/litellm-dashboard.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now litellm-dashboard
+
+[Unit]
+Description=LLM Router Dashboard
+After=litellm-proxy.service
+Wants=litellm-proxy.service
+
+[Service]
+Type=simple
+
+ExecStart=/home/erewhon/Projects/erewhon/llm-router/.venv/bin/python \
+    -m llm_router.dashboard \
+    --registry /home/erewhon/Projects/erewhon/llm-router/models.yaml \
+    --litellm-url http://localhost:4010 \
+    --litellm-key sk-litellm-master \
+    --port 4011
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# --- Sandboxing ---
+DynamicUser=yes
+ProtectSystem=strict
+PrivateTmp=yes
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/src
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/models.yaml
+BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount
+SystemCallArchitectures=native
+
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+PrivateDevices=yes
+MemoryDenyWriteExecute=no
+LockPersonality=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,32 @@
+# LiteLLM Proxy — runs on delphi
+# Provides the single OpenAI-compatible entry point for all models.
+
+services:
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: litellm-proxy
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+      # Mount the on-demand hook
+      - ../src/llm_router/litellm_hooks/on_demand.py:/app/on_demand.py:ro
+    environment:
+      - LITELLM_MASTER_KEY=sk-litellm-master
+      - LITELLM_LOG_LEVEL=INFO
+    command:
+      - "--config"
+      - "/app/config.yaml"
+      - "--port"
+      - "4000"
+      - "--num_workers"
+      - "4"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # Use host networking so LiteLLM can reach node agents
+    network_mode: host

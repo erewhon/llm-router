@@ -1,0 +1,245 @@
+"""Node agent — FastAPI service managing inference backends on a single node."""
+
+from __future__ import annotations
+
+import logging
+import socket
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Any
+
+import click
+import uvicorn
+from fastapi import FastAPI, HTTPException
+
+from llm_router.config import BackendType, ModelRegistry, load_registry
+from llm_router.node_agent.backends.base import Backend
+from llm_router.node_agent.backends.vllm import VllmBackend
+from llm_router.node_agent.models import (
+    ModelListEntry,
+    ModelStartRequest,
+    ModelState,
+    ModelStatusResponse,
+    NodeHealthResponse,
+)
+
+logger = logging.getLogger(__name__)
+
+# Module-level state populated at startup
+_registry: ModelRegistry | None = None
+_node_name: str = ""
+_backends: dict[BackendType, Backend] = {}
+
+
+def _get_backend(backend_type: BackendType) -> Backend:
+    if backend_type not in _backends:
+        raise HTTPException(status_code=501, detail=f"Backend {backend_type.value!r} not available")
+    return _backends[backend_type]
+
+
+def _get_model(model_id: str) -> tuple[str, Any]:
+    """Look up a model in the registry, scoped to this node."""
+    assert _registry is not None
+    node_models = _registry.models_for_node(_node_name)
+    if model_id not in node_models:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Model {model_id!r} not found on node {_node_name!r}",
+        )
+    return model_id, node_models[model_id]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Start always-on models at startup."""
+    assert _registry is not None
+    node_models = _registry.models_for_node(_node_name)
+    for model_id, model in node_models.items():
+        if model.always_on:
+            backend = _get_backend(model.backend)
+            logger.info(f"Auto-starting always-on model: {model_id}")
+            try:
+                await backend.start(model_id, model)
+            except Exception:
+                logger.exception(f"Failed to auto-start {model_id}")
+    yield
+
+
+app = FastAPI(title="LLM Router Node Agent", lifespan=lifespan)
+
+
+@app.post("/models/{model_id}/start")
+async def start_model(model_id: str, req: ModelStartRequest | None = None) -> ModelStatusResponse:
+    """Start an inference backend for a model."""
+    model_id, model = _get_model(model_id)
+    backend = _get_backend(model.backend)
+
+    status = await backend.status(model_id)
+    if status.state == ModelState.RUNNING:
+        return ModelStatusResponse(
+            model_id=model_id,
+            state=status.state,
+            pid=status.pid,
+            port=status.port,
+            backend=model.backend.value,
+            hf_repo=model.hf_repo,
+        )
+
+    await backend.start(model_id, model)
+    status = await backend.status(model_id)
+
+    return ModelStatusResponse(
+        model_id=model_id,
+        state=status.state,
+        pid=status.pid,
+        port=status.port,
+        backend=model.backend.value,
+        hf_repo=model.hf_repo,
+        error=status.error,
+    )
+
+
+@app.post("/models/{model_id}/stop")
+async def stop_model(model_id: str) -> ModelStatusResponse:
+    """Stop an inference backend for a model."""
+    model_id, model = _get_model(model_id)
+    backend = _get_backend(model.backend)
+
+    await backend.stop(model_id)
+    status = await backend.status(model_id)
+
+    return ModelStatusResponse(
+        model_id=model_id,
+        state=status.state,
+        backend=model.backend.value,
+        hf_repo=model.hf_repo,
+    )
+
+
+@app.get("/models/{model_id}/status")
+async def model_status(model_id: str) -> ModelStatusResponse:
+    """Get the status of a model's inference backend."""
+    model_id, model = _get_model(model_id)
+    backend = _get_backend(model.backend)
+    status = await backend.status(model_id)
+
+    return ModelStatusResponse(
+        model_id=model_id,
+        state=status.state,
+        pid=status.pid,
+        port=status.port,
+        backend=model.backend.value,
+        hf_repo=model.hf_repo,
+        error=status.error,
+    )
+
+
+@app.get("/models")
+async def list_models() -> list[ModelListEntry]:
+    """List all models assigned to this node with their status."""
+    assert _registry is not None
+    node_models = _registry.models_for_node(_node_name)
+    entries = []
+    for model_id, model in node_models.items():
+        backend = _get_backend(model.backend)
+        status = await backend.status(model_id)
+        entries.append(
+            ModelListEntry(
+                model_id=model_id,
+                state=status.state,
+                hf_repo=model.hf_repo,
+                backend=model.backend.value,
+                always_on=model.always_on,
+                vram_gb=model.vram_gb,
+            )
+        )
+    return entries
+
+
+@app.get("/health")
+async def health() -> NodeHealthResponse:
+    """Health check with node GPU info."""
+    assert _registry is not None
+    node_models = _registry.models_for_node(_node_name)
+
+    running = []
+    for model_id, model in node_models.items():
+        backend = _get_backend(model.backend)
+        status = await backend.status(model_id)
+        if status.state == ModelState.RUNNING:
+            running.append(model_id)
+
+    gpu_type = None
+    total_vram = None
+    free_vram = None
+    try:
+        from llm_router.node_agent.gpu import get_gpu_info
+
+        info = get_gpu_info()
+        gpu_type = info.gpu_type.value
+        total_vram = info.total_vram_gb
+        free_vram = info.free_vram_gb
+    except Exception:
+        pass
+
+    return NodeHealthResponse(
+        node=_node_name,
+        gpu_type=gpu_type,
+        total_vram_gb=total_vram,
+        free_vram_gb=free_vram,
+        running_models=running,
+    )
+
+
+def create_app(
+    registry: ModelRegistry,
+    node_name: str,
+) -> FastAPI:
+    """Create the FastAPI app with configured state."""
+    global _registry, _node_name, _backends
+    _registry = registry
+    _node_name = node_name
+    _backends = {BackendType.VLLM: VllmBackend()}
+    return app
+
+
+@click.command()
+@click.option(
+    "--registry",
+    "-r",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Path to models.yaml",
+)
+@click.option(
+    "--node",
+    "-n",
+    type=str,
+    default=None,
+    help="Node name (default: hostname)",
+)
+@click.option("--host", default="0.0.0.0", help="Bind address")
+@click.option("--port", default=8100, type=int, help="Bind port")
+def cli(registry: Path | None, node: str | None, host: str, port: int) -> None:
+    """Start the node agent."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+    )
+
+    node_name = node or socket.gethostname()
+    reg = load_registry(registry)
+
+    if node_name not in reg.nodes:
+        raise click.ClickException(
+            f"Node {node_name!r} not found in registry. "
+            f"Available: {', '.join(reg.nodes)}"
+        )
+
+    create_app(reg, node_name)
+    logger.info(f"Starting node agent for {node_name} on {host}:{port}")
+    uvicorn.run(app, host=host, port=port, log_level="info")
+
+
+if __name__ == "__main__":
+    cli()

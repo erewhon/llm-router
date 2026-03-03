@@ -1,0 +1,194 @@
+[
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Web Search",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Fetch",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Fetch",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Fetch",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Fetch",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Fetch",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Read",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude is waiting for your input",
+    "notification_type": "idle_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Read",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude Code needs your attention",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude Code needs your attention",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Fetch",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "dbcc5621-bb39-400f-a539-4fa964edf8d0",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/dbcc5621-bb39-400f-a539-4fa964edf8d0.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude Code needs your approval for the plan",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude is waiting for your input",
+    "notification_type": "idle_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  },
+  {
+    "session_id": "ddf071af-809d-4568-8d26-77a11d0d126d",
+    "transcript_path": "/home/erewhon/.claude/projects/-home-erewhon-Projects-erewhon-llm-router/ddf071af-809d-4568-8d26-77a11d0d126d.jsonl",
+    "cwd": "/home/erewhon/Projects/erewhon/llm-router",
+    "hook_event_name": "Notification",
+    "message": "Claude needs your permission to use Bash",
+    "notification_type": "permission_prompt"
+  }
+]

@@ -1,0 +1,65 @@
+# LLM Router — Model Registry
+# This is the single source of truth for all models.
+# Run `llm-router-generate` to produce LiteLLM and node-agent configs.
+
+nodes:
+  delphi:
+    host: delphi
+    gpu: amd
+    vram_gb: 64  # Strix Halo unified memory allocation
+    agent_port: 8100
+  archimedes:
+    host: archimedes
+    gpu: nvidia
+    vram_gb: 128  # GB10 unified memory
+    agent_port: 8100
+  hypatia:
+    host: hypatia
+    gpu: nvidia
+    vram_gb: 128  # GB10 unified memory
+    agent_port: 8100
+
+models:
+  qwen3-30b:
+    hf_repo: Qwen/Qwen3-30B-A3B
+    backend: vllm
+    node: archimedes
+    vram_gb: 20
+    always_on: true
+    tool_proxy: true
+    aliases:
+      - medium-coding
+      - medium-research
+    capabilities:
+      - text
+    vllm_args:
+      tool_call_parser: qwen3_xml
+
+  qwen3-235b:
+    hf_repo: Qwen/Qwen3-235B-A22B
+    backend: vllm
+    node: archimedes
+    vram_gb: 55
+    always_on: false
+    tool_proxy: true
+    aliases:
+      - large-coding
+      - large-research
+    capabilities:
+      - text
+    vllm_args:
+      tool_call_parser: qwen3_xml
+
+  devstral-small:
+    hf_repo: mistralai/Devstral-Small-2505
+    backend: vllm
+    node: archimedes
+    vram_gb: 28
+    always_on: false
+    tool_proxy: false
+    aliases:
+      - small-coding
+    capabilities:
+      - text
+    vllm_args:
+      tool_call_parser: mistral

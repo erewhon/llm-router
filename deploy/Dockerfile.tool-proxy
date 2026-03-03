@@ -1,0 +1,25 @@
+# Dockerfile for the tool-calling proxy sidecar
+# Build:  docker build -f deploy/Dockerfile.tool-proxy -t llm-tool-proxy .
+# Run:    docker run -p 5392:5392 -e VLLM_BACKEND_URL=http://host:5391 llm-tool-proxy
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install uv for fast dependency resolution
+RUN pip install --no-cache-dir uv
+
+# Copy project files
+COPY pyproject.toml .
+COPY src/ src/
+
+# Install the package with tool-proxy extras
+RUN uv pip install --system ".[tool-proxy]"
+
+# SSL certs
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+
+EXPOSE 5392
+
+ENTRYPOINT ["python", "-m", "llm_router.tool_proxy.service"]
+CMD ["--port", "5392", "--host", "0.0.0.0"]

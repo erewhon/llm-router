@@ -1,0 +1,25 @@
+# systemd unit for llm-router node agent
+# Install: sudo cp node-agent.service /etc/systemd/system/llm-router-agent.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now llm-router-agent
+
+[Unit]
+Description=LLM Router Node Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+WorkingDirectory=/home/erewhon/Projects/erewhon/llm-router
+ExecStart=/home/erewhon/Projects/erewhon/llm-router/.venv/bin/python -m llm_router.node_agent.main --port 8100
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Environment
+Environment=PATH=/home/erewhon/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target

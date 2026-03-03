@@ -33,6 +33,17 @@ def _litellm_model_entry(
             "tool_proxy": model.tool_proxy,
             "vram_gb": model.vram_gb,
             "capabilities": [c.value for c in model.capabilities],
+            **(
+                {
+                    "multi_node": {
+                        "nodes": model.multi_node.nodes,
+                        "tensor_parallel_size": model.multi_node.tensor_parallel_size,
+                        "head_node": model.multi_node.head_node or model.multi_node.nodes[0],
+                    }
+                }
+                if model.multi_node
+                else {}
+            ),
         },
     }
     return entry
@@ -86,6 +97,7 @@ def generate_node_config(registry: ModelRegistry, node_name: str) -> dict:
                 "vram_gb": m.vram_gb,
                 "always_on": m.always_on,
                 "tool_proxy": m.tool_proxy,
+                **({"gguf_file": m.gguf_file} if m.gguf_file else {}),
                 "vllm_args": m.vllm_args.model_dump(exclude_none=True),
             }
             for mid, m in models.items()

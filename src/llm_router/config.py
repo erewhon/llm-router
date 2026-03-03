@@ -90,12 +90,19 @@ class ModelRegistry(BaseModel):
         return self.nodes[model.node]
 
     def get_api_base(self, model_id: str) -> str:
-        """Get the API base URL for a model's inference backend."""
+        """Get the API base URL for a model's inference backend.
+
+        For multi-node models, uses the head node.
+        """
         model = self.models[model_id]
-        node = self.get_node(model_id)
+        if model.multi_node:
+            head = model.multi_node.head_node or model.multi_node.nodes[0]
+            host = self.nodes[head].host
+        else:
+            host = self.get_node(model_id).host
         if model.tool_proxy:
-            return f"http://{node.host}:5392/v1"
-        return f"http://{node.host}:5391/v1"
+            return f"http://{host}:5392/v1"
+        return f"http://{host}:5391/v1"
 
     def models_for_node(self, node_name: str) -> dict[str, ModelDefinition]:
         """Get all models assigned to a specific node."""

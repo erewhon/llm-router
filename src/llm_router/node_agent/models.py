@@ -57,3 +57,19 @@ class ModelListEntry(BaseModel):
     backend: str
     always_on: bool
     vram_gb: int
+
+
+class RayJoinRequest(BaseModel):
+    """Request to join or form a Ray cluster."""
+
+    role: str  # "head" or "worker"
+    head_address: str | None = None  # required when role == "worker"
+    port: int = 6379  # Ray port (for head)
+
+
+class RayStatusResponse(BaseModel):
+    role: str
+    state: str
+    head_address: str | None = None
+    pid: int | None = None
+    error: str | None = None

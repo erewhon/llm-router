@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException
 
 from llm_router.config import BackendType, ModelRegistry, load_registry
 from llm_router.node_agent.backends.base import Backend
+from llm_router.node_agent.backends.llamacpp import LlamaCppBackend
 from llm_router.node_agent.backends.vllm import VllmBackend
 from llm_router.node_agent.models import (
     ModelListEntry,
@@ -21,7 +22,10 @@ from llm_router.node_agent.models import (
     ModelState,
     ModelStatusResponse,
     NodeHealthResponse,
+    RayJoinRequest,
+    RayStatusResponse,
 )
+from llm_router.node_agent.ray_cluster import RayClusterManager
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,7 @@ logger = logging.getLogger(__name__)
 _registry: ModelRegistry | None = None
 _node_name: str = ""
 _backends: dict[BackendType, Backend] = {}
+_ray: RayClusterManager = RayClusterManager()
 
 
 def _get_backend(backend_type: BackendType) -> Backend:
@@ -191,6 +196,50 @@ async def health() -> NodeHealthResponse:
     )
 
 
+@app.post("/ray/join")
+async def ray_join(req: RayJoinRequest) -> RayStatusResponse:
+    """Join or form a Ray cluster."""
+    if req.role == "head":
+        status = await _ray.start_head(port=req.port)
+    elif req.role == "worker":
+        if not req.head_address:
+            raise HTTPException(status_code=400, detail="head_address required for worker role")
+        status = await _ray.start_worker(req.head_address)
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid role: {req.role!r}")
+
+    return RayStatusResponse(
+        role=status.role.value,
+        state=status.state.value,
+        head_address=status.head_address,
+        pid=status.pid,
+        error=status.error,
+    )
+
+
+@app.post("/ray/leave")
+async def ray_leave() -> RayStatusResponse:
+    """Leave the Ray cluster and stop Ray on this node."""
+    status = await _ray.stop()
+    return RayStatusResponse(
+        role=status.role.value,
+        state=status.state.value,
+    )
+
+
+@app.get("/ray/status")
+async def ray_status() -> RayStatusResponse:
+    """Get this node's Ray cluster status."""
+    status = _ray.status
+    return RayStatusResponse(
+        role=status.role.value,
+        state=status.state.value,
+        head_address=status.head_address,
+        pid=status.pid,
+        error=status.error,
+    )
+
+
 def create_app(
     registry: ModelRegistry,
     node_name: str,
@@ -199,7 +248,10 @@ def create_app(
     global _registry, _node_name, _backends
     _registry = registry
     _node_name = node_name
-    _backends = {BackendType.VLLM: VllmBackend()}
+    _backends = {
+        BackendType.VLLM: VllmBackend(),
+        BackendType.LLAMACPP: LlamaCppBackend(),
+    }
     return app
 
 

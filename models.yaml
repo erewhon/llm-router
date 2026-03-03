@@ -50,6 +50,25 @@ models:
     vllm_args:
       tool_call_parser: qwen3_xml
 
+  llama4-scout-109b:
+    hf_repo: meta-llama/Llama-4-Scout-17B-16E-Instruct
+    backend: vllm
+    multi_node:
+      nodes:
+        - archimedes
+        - hypatia
+      tensor_parallel_size: 2
+    vram_gb: 120
+    always_on: false
+    tool_proxy: true
+    aliases:
+      - large-multimodal
+    capabilities:
+      - text
+      - vision
+    vllm_args:
+      tool_call_parser: llama3_json
+
   devstral-small:
     hf_repo: mistralai/Devstral-Small-2505
     backend: vllm
@@ -63,3 +82,18 @@ models:
       - text
     vllm_args:
       tool_call_parser: mistral
+
+  qwen3-30b-gguf:
+    hf_repo: Qwen/Qwen3-30B-A3B-GGUF
+    backend: llamacpp
+    node: delphi
+    gguf_file: /data/models/Qwen3-30B-A3B-Q4_K_M.gguf
+    vram_gb: 20
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - delphi-default
+    capabilities:
+      - text
+    vllm_args:
+      max_model_len: 32768

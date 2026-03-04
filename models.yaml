@@ -34,85 +34,139 @@ models:
       - text
       - tool_calling
 
-  qwen3-30b:
-    hf_repo: Qwen/Qwen3-30B-A3B
-    backend: vllm
+  qwen3-vl-8b:
+    hf_repo: qwen/qwen3-vl-8b
+    backend: lmstudio
     node: archimedes
-    vram_gb: 20
+    api_port: 1234
+    vram_gb: 8
     always_on: true
-    tool_proxy: true
+    tool_proxy: false
     aliases:
-      - medium-coding
-      - medium-research
+      - small-multimodal
     capabilities:
       - text
+      - vision
       - tool_calling
-    vllm_args:
-      tool_call_parser: qwen3_xml
 
-  qwen3-235b:
-    hf_repo: Qwen/Qwen3-235B-A22B
-    backend: vllm
-    node: archimedes
-    vram_gb: 55
-    always_on: false
-    tool_proxy: true
-    aliases:
-      - large-coding
-      - large-research
-    capabilities:
-      - text
-      - tool_calling
-    vllm_args:
-      tool_call_parser: qwen3_xml
-
-  llama4-scout-109b:
-    hf_repo: meta-llama/Llama-4-Scout-17B-16E-Instruct
+  qwen2.5-1.5b:
+    hf_repo: Qwen/Qwen2.5-1.5B-Instruct
     backend: vllm
     multi_node:
       nodes:
         - archimedes
         - hypatia
       tensor_parallel_size: 2
-    vram_gb: 120
-    always_on: false
-    tool_proxy: true
-    aliases:
-      - large-multimodal
-    capabilities:
-      - text
-      - vision
-      - tool_calling
-    vllm_args:
-      tool_call_parser: llama3_json
-
-  devstral-small:
-    hf_repo: mistralai/Devstral-Small-2505
-    backend: vllm
-    node: archimedes
-    vram_gb: 28
+      head_node: archimedes
+    vram_gb: 4
     always_on: false
     tool_proxy: false
-    aliases:
-      - small-coding
     capabilities:
       - text
       - tool_calling
-    vllm_args:
-      tool_call_parser: mistral
+    tags:
+      - multi-node
+      - containerized
 
-  qwen3-30b-gguf:
-    hf_repo: Qwen/Qwen3-30B-A3B-GGUF
-    backend: llamacpp
-    node: delphi
-    gguf_file: /data/models/Qwen3-30B-A3B-Q4_K_M.gguf
-    vram_gb: 20
-    always_on: true
-    tool_proxy: false
-    aliases:
-      - delphi-default
-    capabilities:
-      - text
-      - tool_calling
-    vllm_args:
-      max_model_len: 32768
+  # --- Inactive models (uncomment when backends are running) ---
+
+  # qwen3-next-80b-nvfp4:
+  #   hf_repo: nvidia/Qwen3-Next-80B-A3B-Instruct-NVFP4
+  #   backend: vllm
+  #   node: archimedes
+  #   vram_gb: 50
+  #   always_on: true
+  #   tool_proxy: false
+  #   aliases:
+  #     - archimedes-default
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+  #   tags:
+  #     - containerized
+  #     - vpn
+  #   vllm_args:
+  #     tool_call_parser: qwen3_xml
+
+  # qwen3-30b:
+  #   hf_repo: Qwen/Qwen3-30B-A3B
+  #   backend: vllm
+  #   node: archimedes
+  #   vram_gb: 20
+  #   always_on: true
+  #   tool_proxy: true
+  #   aliases:
+  #     - medium-coding
+  #     - medium-research
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+  #   vllm_args:
+  #     tool_call_parser: qwen3_xml
+
+  # qwen3-235b:
+  #   hf_repo: Qwen/Qwen3-235B-A22B
+  #   backend: vllm
+  #   node: archimedes
+  #   vram_gb: 55
+  #   always_on: false
+  #   tool_proxy: true
+  #   aliases:
+  #     - large-coding
+  #     - large-research
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+  #   vllm_args:
+  #     tool_call_parser: qwen3_xml
+
+  # llama4-scout-109b:
+  #   hf_repo: meta-llama/Llama-4-Scout-17B-16E-Instruct
+  #   backend: vllm
+  #   multi_node:
+  #     nodes:
+  #       - archimedes
+  #       - hypatia
+  #     tensor_parallel_size: 2
+  #   vram_gb: 120
+  #   always_on: false
+  #   tool_proxy: true
+  #   aliases:
+  #     - large-multimodal
+  #   capabilities:
+  #     - text
+  #     - vision
+  #     - tool_calling
+  #   vllm_args:
+  #     tool_call_parser: llama3_json
+
+  # devstral-small:
+  #   hf_repo: mistralai/Devstral-Small-2505
+  #   backend: vllm
+  #   node: archimedes
+  #   vram_gb: 28
+  #   always_on: false
+  #   tool_proxy: false
+  #   aliases:
+  #     - small-coding
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+  #   vllm_args:
+  #     tool_call_parser: mistral
+
+  # qwen3-30b-gguf:
+  #   hf_repo: Qwen/Qwen3-30B-A3B-GGUF
+  #   backend: llamacpp
+  #   node: delphi
+  #   gguf_file: /data/models/Qwen3-30B-A3B-Q4_K_M.gguf
+  #   vram_gb: 20
+  #   always_on: true
+  #   tool_proxy: false
+  #   aliases:
+  #     - delphi-default
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+  #   vllm_args:
+  #     max_model_len: 32768

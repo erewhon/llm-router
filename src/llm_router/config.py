@@ -64,6 +64,7 @@ class ModelDefinition(BaseModel):
     tool_proxy: bool = False
     aliases: list[str] = Field(default_factory=list)
     capabilities: list[ModelCapability] = Field(default_factory=lambda: [ModelCapability.TEXT])
+    tags: list[str] = Field(default_factory=list)
     vllm_args: VllmArgs = Field(default_factory=VllmArgs)
 
     # For llamacpp backend

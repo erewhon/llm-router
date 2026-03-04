@@ -33,6 +33,7 @@ def _litellm_model_entry(
             "tool_proxy": model.tool_proxy,
             "vram_gb": model.vram_gb,
             "capabilities": [c.value for c in model.capabilities],
+            **({"tags": model.tags} if model.tags else {}),
             **(
                 {
                     "multi_node": {

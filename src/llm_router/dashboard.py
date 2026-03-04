@@ -103,6 +103,7 @@ async def api_models():
             "tool_proxy": model.tool_proxy,
             "aliases": model.aliases,
             "capabilities": [c.value for c in model.capabilities],
+            "tags": model.tags,
             "api_base": api_base,
             "health": health,
             "gguf_file": model.gguf_file,
@@ -238,6 +239,7 @@ DASHBOARD_HTML = """\
   .badge-off { background: rgba(139, 143, 163, 0.1); color: var(--text-dim); }
   .badge-tool { background: rgba(251, 191, 36, 0.15); color: var(--yellow); }
   .badge-multi { background: rgba(251, 146, 60, 0.15); color: var(--orange); }
+  .badge-tag { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
 
   .health-dot {
     display: inline-block;
@@ -343,6 +345,7 @@ function render(data) {
     else flags += '<span class="badge badge-off">on-demand</span> ';
     if (m.tool_proxy) flags += '<span class="badge badge-tool">tool-proxy</span> ';
     if (m.nodes.length > 1) flags += '<span class="badge badge-multi">multi-node</span> ';
+    if (m.tags) m.tags.forEach(t => { flags += `<span class="badge badge-tag">${t}</span> `; });
 
     const hclass = `health-${m.health}`;
     const hlabel = m.health === 'routed' ? 'healthy' : m.health;

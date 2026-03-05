@@ -41,8 +41,10 @@ PrivateTmp=yes
 
 # Bind vLLM venv and HuggingFace model cache
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
-BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+BindReadOnlyPaths=-/home/erewhon/.local/share/uv/python
 BindReadOnlyPaths=/home/erewhon/.cache/huggingface
+# Linuxbrew Python on NVIDIA nodes (archimedes, hypatia) — optional, '-' skips if absent
+BindReadOnlyPaths=-/home/linuxbrew
 
 # State for vLLM (compilation cache, etc.)
 StateDirectory=llm-vllm

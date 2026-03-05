@@ -103,7 +103,7 @@ sleep 10
 # --- Wait for Ray cluster to form ---
 echo "Waiting for Ray cluster (2 nodes)..."
 for i in $(seq 1 30); do
-    NODE_COUNT=$(ssh "$HEAD_NODE" "docker exec $CONTAINER_NAME ray status 2>/dev/null | grep -c 'node_' || echo 0")
+    NODE_COUNT=$(ssh "$HEAD_NODE" "docker exec $CONTAINER_NAME bash -c 'ray status 2>/dev/null | grep -c node_ || echo 0'" 2>/dev/null | tail -1)
     if [[ "$NODE_COUNT" -ge 2 ]]; then
         echo "Ray cluster ready: $NODE_COUNT nodes"
         break

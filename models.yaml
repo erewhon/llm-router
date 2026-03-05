@@ -37,35 +37,93 @@ models:
   qwen3-vl-8b:
     hf_repo: qwen/qwen3-vl-8b
     backend: lmstudio
-    node: archimedes
+    node: hypatia
     api_port: 1234
     vram_gb: 8
     always_on: true
     tool_proxy: false
     aliases:
       - small-multimodal
+      - vision
     capabilities:
       - text
       - vision
       - tool_calling
 
-  qwen2.5-1.5b:
-    hf_repo: Qwen/Qwen2.5-1.5B-Instruct
-    backend: vllm
-    multi_node:
-      nodes:
-        - archimedes
-        - hypatia
-      tensor_parallel_size: 2
-      head_node: archimedes
-    vram_gb: 4
-    always_on: false
+  qwen3-coder-next:
+    hf_repo: qwen/qwen3-coder-next
+    backend: lmstudio
+    node: archimedes
+    api_port: 1234
+    vram_gb: 48
+    always_on: true
     tool_proxy: false
+    aliases:
+      - coder
+    capabilities:
+      - text
+      - tool_calling
+
+  # qwen3-32b:
+  #   hf_repo: qwen/qwen3-32b
+  #   backend: lmstudio
+  #   node: archimedes
+  #   api_port: 1234
+  #   vram_gb: 20
+  #   always_on: true
+  #   tool_proxy: false
+  #   aliases:
+  #     - reasoner
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+
+  qwen3.5-27b:
+    hf_repo: qwen3.5-27b
+    backend: lmstudio
+    node: hypatia
+    api_port: 1234
+    vram_gb: 29
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - thinker
+    capabilities:
+      - text
+      - tool_calling
+
+  # qwen2.5-1.5b:
+  #   hf_repo: Qwen/Qwen2.5-1.5B-Instruct
+  #   backend: vllm
+  #   multi_node:
+  #     nodes:
+  #       - archimedes
+  #       - hypatia
+  #     tensor_parallel_size: 2
+  #     head_node: archimedes
+  #   vram_gb: 4
+  #   always_on: false
+  #   tool_proxy: false
+  #   capabilities:
+  #     - text
+  #     - tool_calling
+  #   tags:
+  #     - multi-node
+  #     - containerized
+
+  qwen3.5-35b-a3b:
+    hf_repo: Qwen/Qwen3.5-35B-A3B-GPTQ-Int4
+    backend: vllm
+    node: archimedes
+    vram_gb: 21
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - researcher
     capabilities:
       - text
       - tool_calling
     tags:
-      - multi-node
       - containerized
 
   # --- Inactive models (uncomment when backends are running) ---

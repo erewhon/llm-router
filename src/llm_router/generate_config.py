@@ -71,9 +71,7 @@ def generate_litellm_config(registry: ModelRegistry) -> dict:
             "drop_params": True,
             "request_timeout": 600,
         },
-        "general_settings": {
-            "master_key": "sk-litellm-master",
-        },
+        "general_settings": {},
     }
     return config
 

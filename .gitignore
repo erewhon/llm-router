@@ -12,3 +12,8 @@ deploy/litellm/config.yaml
 deploy/node-*.yaml
 
 logs/*
+
+# Local benchmark results
+bench-results/
+*.json
+!pyproject.toml

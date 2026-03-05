@@ -310,6 +310,39 @@ function render(data) {
         <div class="stat-label">Healthy</div></div>
     </div>`;
 
+  // Connection info
+  const tsUrl = 'https://llm.peacock-bramble.ts.net';
+  html += `
+    <div class="section-title">Connection</div>
+    <div class="nodes">
+      <div class="node-card" style="flex:2">
+        <div class="node-name">Quick Start</div>
+        <div class="node-detail" style="margin-top:0.5rem">
+          <strong>Host:</strong> <span class="api-base">${tsUrl}</span>
+          <span style="color:var(--text-dim); font-size:0.75rem">(preferred)</span>
+        </div>
+        <div class="node-detail">
+          <strong>Direct:</strong> <span class="api-base">${litellm_url}</span>
+          <span style="color:var(--text-dim); font-size:0.75rem">(from delphi only)</span>
+        </div>
+        <div class="node-detail" style="margin-top:0.5rem">
+          <strong>API Key:</strong> <span>any non-empty string</span>
+        </div>
+        <div class="node-detail" style="margin-top:0.5rem">
+          <strong>Model:</strong> <span>use the model ID or any alias from the table below</span>
+        </div>
+      </div>
+      <div class="node-card" style="flex:3">
+        <div class="node-name">Example</div>
+        <div style="margin-top:0.5rem">
+          <span class="api-base">curl ${tsUrl}/v1/chat/completions \\<br>
+          &nbsp;&nbsp;-H "Authorization: Bearer anything" \\<br>
+          &nbsp;&nbsp;-H "Content-Type: application/json" \\<br>
+          &nbsp;&nbsp;-d '{"model":"${models[0]?.aliases?.[0] || models[0]?.id || 'MODEL'}","messages":[{"role":"user","content":"Hello"}]}'</span>
+        </div>
+      </div>
+    </div>`;
+
   // Nodes
   html += `<div class="section-title">Nodes</div><div class="nodes">`;
   for (const [name, n] of Object.entries(nodes)) {
@@ -364,19 +397,6 @@ function render(data) {
     </tr>`;
   }
   html += `</tbody></table>`;
-
-  // Connection info
-  html += `
-    <div class="section-title">Connection</div>
-    <div class="node-card" style="max-width:500px">
-      <div class="node-detail">Proxy: <span>${litellm_url}</span></div>
-      <div class="node-detail" style="margin-top:0.5rem">
-        <span class="api-base">curl ${litellm_url}/v1/chat/completions \\<br>
-        &nbsp;&nbsp;-H "Authorization: Bearer $KEY" \\<br>
-        &nbsp;&nbsp;-H "Content-Type: application/json" \\<br>
-        &nbsp;&nbsp;-d '{"model":"${models[0]?.id || 'MODEL'}","messages":[...]}'</span>
-      </div>
-    </div>`;
 
   return html;
 }

@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from llm_router.config import BackendType, ModelRegistry, load_registry
 from llm_router.node_agent.backends.base import Backend
 from llm_router.node_agent.backends.llamacpp import LlamaCppBackend
+from llm_router.node_agent.backends.lmstudio import LmStudioBackend
 from llm_router.node_agent.backends.vllm import VllmBackend
 from llm_router.node_agent.models import (
     ModelListEntry,
@@ -177,6 +178,7 @@ async def health() -> NodeHealthResponse:
     gpu_type = None
     total_vram = None
     free_vram = None
+    gpu_busy = None
     try:
         from llm_router.node_agent.gpu import get_gpu_info
 
@@ -184,6 +186,7 @@ async def health() -> NodeHealthResponse:
         gpu_type = info.gpu_type.value
         total_vram = info.total_vram_gb
         free_vram = info.free_vram_gb
+        gpu_busy = info.gpu_busy_pct
     except Exception:
         pass
 
@@ -192,6 +195,7 @@ async def health() -> NodeHealthResponse:
         gpu_type=gpu_type,
         total_vram_gb=total_vram,
         free_vram_gb=free_vram,
+        gpu_busy_pct=gpu_busy,
         running_models=running,
     )
 
@@ -248,10 +252,16 @@ def create_app(
     global _registry, _node_name, _backends
     _registry = registry
     _node_name = node_name
+    lmstudio = LmStudioBackend()
     _backends = {
         BackendType.VLLM: VllmBackend(),
         BackendType.LLAMACPP: LlamaCppBackend(),
+        BackendType.LMSTUDIO: lmstudio,
     }
+    # Register ports for lmstudio models so health probes work
+    for mid, m in registry.models_for_node(node_name).items():
+        if m.backend == BackendType.LMSTUDIO:
+            lmstudio.register_model(mid, m)
     return app
 
 

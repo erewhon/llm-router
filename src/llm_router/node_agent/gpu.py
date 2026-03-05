@@ -19,6 +19,7 @@ class GpuInfo:
     total_vram_mb: int
     free_vram_mb: int
     unified_memory: bool
+    gpu_busy_pct: int | None = None  # 0-100, None if unavailable
 
     @property
     def total_vram_gb(self) -> float:
@@ -72,7 +73,8 @@ def _get_nvidia_vram() -> tuple[int, int, bool]:
             [
                 "python3",
                 "-c",
-                "import torch; f,t=torch.cuda.mem_get_info(); print(f//1048576, t//1048576)",
+                "import torch; f,t=torch.cuda.mem_get_info(); "
+                "print(f//1048576, t//1048576)",
             ],
             capture_output=True,
             text=True,
@@ -84,20 +86,54 @@ def _get_nvidia_vram() -> tuple[int, int, bool]:
     except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
         pass
 
-    raise RuntimeError("Could not determine NVIDIA GPU memory")
+    # Fallback: unified memory GPU — use system RAM from /proc/meminfo
+    return _get_meminfo_vram()
+
+
+def _get_meminfo_vram() -> tuple[int, int, bool]:
+    """Read system memory from /proc/meminfo (unified memory fallback)."""
+    meminfo = Path("/proc/meminfo")
+    if not meminfo.exists():
+        raise RuntimeError("Could not determine NVIDIA GPU memory")
+    text = meminfo.read_text()
+    total_kb = free_kb = 0
+    for line in text.splitlines():
+        if line.startswith("MemTotal:"):
+            total_kb = int(line.split()[1])
+        elif line.startswith("MemAvailable:"):
+            free_kb = int(line.split()[1])
+    if total_kb == 0:
+        raise RuntimeError("Could not parse /proc/meminfo")
+    return free_kb // 1024, total_kb // 1024, True
 
 
 def _get_amd_vram() -> tuple[int, int, bool]:
     """Query AMD GPU memory. Returns (free_mb, total_mb, unified).
 
     Strix Halo uses unified memory, so we always report unified=True for AMD.
+    Tries sysfs first (no dependencies), then PyTorch, then rocm-smi.
     """
+    # Primary: sysfs (works on all amdgpu-driven GPUs, no deps)
+    try:
+        drm = Path("/sys/class/drm")
+        for card in sorted(drm.glob("card[0-9]*/device/mem_info_vram_total")):
+            device = card.parent
+            total_b = int((device / "mem_info_vram_total").read_text().strip())
+            used_b = int((device / "mem_info_vram_used").read_text().strip())
+            total_mb = total_b // (1024 * 1024)
+            free_mb = (total_b - used_b) // (1024 * 1024)
+            return free_mb, total_mb, True
+    except (OSError, ValueError):
+        pass
+
+    # Fallback: PyTorch
     try:
         result = subprocess.run(
             [
                 "python3",
                 "-c",
-                "import torch; f,t=torch.cuda.mem_get_info(); print(f//1048576, t//1048576)",
+                "import torch; f,t=torch.cuda.mem_get_info(); "
+                "print(f//1048576, t//1048576)",
             ],
             capture_output=True,
             text=True,
@@ -109,7 +145,7 @@ def _get_amd_vram() -> tuple[int, int, bool]:
     except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
         pass
 
-    # Fallback: try rocm-smi
+    # Fallback: rocm-smi
     try:
         result = subprocess.run(
             ["rocm-smi", "--showmeminfo", "vram", "--json"],
@@ -133,6 +169,39 @@ def _get_amd_vram() -> tuple[int, int, bool]:
     raise RuntimeError("Could not determine AMD GPU memory")
 
 
+def _get_gpu_busy_pct() -> int | None:
+    """Read GPU compute utilization from sysfs (amdgpu) or nvidia-smi."""
+    # sysfs (amdgpu)
+    try:
+        for p in sorted(Path("/sys/class/drm").glob(
+            "card[0-9]*/device/gpu_busy_percent"
+        )):
+            return int(p.read_text().strip())
+    except (OSError, ValueError):
+        pass
+
+    # nvidia-smi
+    try:
+        result = subprocess.run(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            val = result.stdout.strip().split("\n")[0].strip()
+            if val != "[N/A]":
+                return int(val)
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+
+    return None
+
+
 def get_gpu_info() -> GpuInfo:
     """Detect GPU type and query current memory status."""
     gpu_type = detect_gpu_type()
@@ -141,15 +210,19 @@ def get_gpu_info() -> GpuInfo:
     else:
         free_mb, total_mb, unified = _get_amd_vram()
 
+    busy = _get_gpu_busy_pct()
+
     info = GpuInfo(
         gpu_type=gpu_type,
         total_vram_mb=total_mb,
         free_vram_mb=free_mb,
         unified_memory=unified,
+        gpu_busy_pct=busy,
     )
     logger.info(
         f"GPU: {gpu_type.value}, {info.free_vram_gb:.1f}GB free / "
-        f"{info.total_vram_gb:.1f}GB total (unified={unified})"
+        f"{info.total_vram_gb:.1f}GB total (unified={unified}), "
+        f"busy={busy}%"
     )
     return info
 

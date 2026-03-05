@@ -47,6 +47,7 @@ class NodeHealthResponse(BaseModel):
     gpu_type: str | None = None
     total_vram_gb: float | None = None
     free_vram_gb: float | None = None
+    gpu_busy_pct: int | None = None
     running_models: list[str] = []
 
 

@@ -9,6 +9,7 @@ Or as a service:  see deploy/litellm-dashboard.service
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -35,9 +36,82 @@ async def dashboard():
     return DASHBOARD_HTML
 
 
+async def _fetch_node_metrics(
+    name: str, host: str, agent_port: int
+) -> dict:
+    """Fetch GPU metrics and model states from a single node agent."""
+    result: dict = {
+        "reachable": False,
+        "vram_used_gb": None,
+        "vram_total_gb": None,
+        "vram_pct": None,
+        "gpu_busy_pct": None,
+        "models": [],
+    }
+    try:
+        base = f"http://{host}:{agent_port}"
+        async with httpx.AsyncClient(timeout=3) as client:
+            health_resp, models_resp = await asyncio.gather(
+                client.get(f"{base}/health"),
+                client.get(f"{base}/models"),
+                return_exceptions=True,
+            )
+
+            if isinstance(health_resp, Exception):
+                return result
+            if health_resp.status_code == 200:
+                h = health_resp.json()
+                total = h.get("total_vram_gb")
+                free = h.get("free_vram_gb")
+                if total is not None and free is not None:
+                    used = round(total - free, 1)
+                    result["vram_used_gb"] = used
+                    result["vram_total_gb"] = round(total, 1)
+                    result["vram_pct"] = (
+                        round(used / total * 100, 1) if total > 0 else 0
+                    )
+                result["gpu_busy_pct"] = h.get("gpu_busy_pct")
+                result["reachable"] = True
+
+            if not isinstance(models_resp, Exception) and models_resp.status_code == 200:
+                for m in models_resp.json():
+                    result["models"].append({
+                        "model_id": m.get("model_id", ""),
+                        "state": m.get("state", "unknown"),
+                    })
+    except Exception:
+        pass
+    return result
+
+
+@app.get("/api/node-metrics")
+async def node_metrics():
+    """Fast endpoint: only GPU metrics from node agents (no LiteLLM)."""
+    assert _registry is not None
+    metrics: dict[str, dict] = {}
+    tasks = {
+        name: _fetch_node_metrics(name, node.host, node.agent_port)
+        for name, node in _registry.nodes.items()
+    }
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    for name, result in zip(tasks.keys(), results, strict=True):
+        if isinstance(result, Exception):
+            metrics[name] = {
+                "reachable": False,
+                "vram_used_gb": None,
+                "vram_total_gb": None,
+                "vram_pct": None,
+                "gpu_busy_pct": None,
+                "models": [],
+            }
+        else:
+            metrics[name] = result
+    return metrics
+
+
 @app.get("/api/models")
 async def api_models():
-    """Aggregate model info from registry + LiteLLM health."""
+    """Aggregate model info from registry + LiteLLM health + node metrics."""
     assert _registry is not None
 
     # Fetch live data from LiteLLM
@@ -69,6 +143,32 @@ async def api_models():
     except Exception as e:
         logger.warning(f"Could not reach LiteLLM at {_litellm_url}: {e}")
 
+    # Fetch node metrics in parallel
+    node_metrics: dict[str, dict] = {}
+    tasks = {
+        name: _fetch_node_metrics(name, node.host, node.agent_port)
+        for name, node in _registry.nodes.items()
+    }
+    results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+    for name, result in zip(tasks.keys(), results, strict=True):
+        if isinstance(result, Exception):
+            node_metrics[name] = {
+                "reachable": False,
+                "vram_used_gb": None,
+                "vram_total_gb": None,
+                "vram_pct": None,
+                "gpu_busy_pct": None,
+                "models": [],
+            }
+        else:
+            node_metrics[name] = result
+
+    # Build model_id -> agent state lookup
+    agent_model_states: dict[str, str] = {}
+    for nm in node_metrics.values():
+        for m in nm.get("models", []):
+            agent_model_states[m["model_id"]] = m["state"]
+
     # Build response from registry
     models = []
     for model_id, model in _registry.models.items():
@@ -90,6 +190,9 @@ async def api_models():
             if model.hf_repo in health_info:
                 health = health_info[model.hf_repo]
 
+        # Node agent state (running/stopped/starting/error)
+        agent_state = agent_model_states.get(model_id)
+
         api_base = _registry.get_api_base(model_id)
 
         models.append({
@@ -106,6 +209,7 @@ async def api_models():
             "tags": model.tags,
             "api_base": api_base,
             "health": health,
+            "agent_state": agent_state,
             "gguf_file": model.gguf_file,
         })
 
@@ -122,6 +226,7 @@ async def api_models():
             }
             for name, node in _registry.nodes.items()
         },
+        "node_metrics": node_metrics,
         "models": models,
     }
 
@@ -193,6 +298,39 @@ DASHBOARD_HTML = """\
   .node-detail { font-size: 0.8rem; color: var(--text-dim); }
   .node-detail span { color: var(--text); }
 
+  /* GPU metric rows */
+  .metric-row {
+    display: flex; align-items: center; gap: 0.4rem;
+    margin-top: 0.4rem;
+  }
+  .metric-label {
+    font-size: 0.65rem; font-weight: 600;
+    color: var(--text-dim); width: 2rem;
+    text-transform: uppercase; flex-shrink: 0;
+  }
+  .vram-bar-track {
+    flex: 1; height: 6px; min-width: 40px;
+    background: var(--border); border-radius: 3px;
+    overflow: hidden;
+  }
+  .vram-bar-fill {
+    height: 100%; border-radius: 3px;
+    transition: width 0.6s ease, background 0.6s ease;
+  }
+  .vram-bar-fill.green { background: var(--green); }
+  .vram-bar-fill.yellow { background: var(--yellow); }
+  .vram-bar-fill.red { background: var(--red); }
+  .vram-bar-fill.grey { background: var(--text-dim); }
+  .vram-text {
+    font-size: 0.7rem; color: var(--text-dim);
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .vram-text strong { color: var(--text); font-weight: 600; }
+  .node-offline {
+    font-size: 0.8rem; color: var(--text-dim);
+    margin-top: 0.5rem; font-style: italic;
+  }
+
   /* Models table */
   table {
     width: 100%;
@@ -252,6 +390,10 @@ DASHBOARD_HTML = """\
   .health-routed { background: var(--green); }
   .health-unhealthy { background: var(--red); }
   .health-unknown { background: var(--text-dim); }
+  .health-running { background: var(--green); }
+  .health-starting { background: var(--yellow); }
+  .health-stopped { background: var(--text-dim); }
+  .health-error { background: var(--red); }
 
   .api-base {
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -277,19 +419,88 @@ DASHBOARD_HTML = """\
   <div id="content"><p class="loading">Loading...</p></div>
 
 <script>
+// Sparkline history per node: { vram_pct: [], gpu_busy_pct: [] }
+const nodeHistory = {};
+const SPARK_MAX = 60; // ~2 min at 2s intervals
+
+// Last full data from /api/models (refreshed every 30s)
+let lastData = null;
+
+function updateHistory(nm) {
+  for (const [name, m] of Object.entries(nm)) {
+    if (!nodeHistory[name]) nodeHistory[name] = {vram: [], gpu: []};
+    if (m.reachable) {
+      if (m.vram_pct !== null) {
+        nodeHistory[name].vram.push(m.vram_pct);
+        if (nodeHistory[name].vram.length > SPARK_MAX)
+          nodeHistory[name].vram.shift();
+      }
+      if (m.gpu_busy_pct !== null) {
+        nodeHistory[name].gpu.push(m.gpu_busy_pct);
+        if (nodeHistory[name].gpu.length > SPARK_MAX)
+          nodeHistory[name].gpu.shift();
+      }
+    }
+  }
+}
+
 async function load() {
   const el = document.getElementById('content');
   try {
     const r = await fetch('/api/models');
-    const data = await r.json();
-    el.innerHTML = render(data);
+    lastData = await r.json();
+    updateHistory(lastData.node_metrics || {});
+    el.innerHTML = render(lastData);
   } catch (e) {
     el.innerHTML = `<p class="error">Failed to load: ${e.message}</p>`;
   }
 }
 
+async function pollMetrics() {
+  if (!lastData) return;
+  try {
+    const r = await fetch('/api/node-metrics');
+    const nm = await r.json();
+    lastData.node_metrics = nm;
+    // Also update agent_state on models from fresh metrics
+    const stateMap = {};
+    for (const m of Object.values(nm)) {
+      for (const mdl of (m.models || [])) {
+        stateMap[mdl.model_id] = mdl.state;
+      }
+    }
+    for (const m of lastData.models) {
+      m.agent_state = stateMap[m.id] || null;
+    }
+    updateHistory(nm);
+    document.getElementById('content').innerHTML = render(lastData);
+  } catch (_) { /* next poll will retry */ }
+}
+
+function sparklineSvg(vals, color) {
+  if (!vals || vals.length < 2) return '';
+  const w = 48, h = 16;
+  const coords = vals.map((v, i) => {
+    const x = (i / (vals.length - 1)) * w;
+    const y = h - (v / 100) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"` +
+    ` style="vertical-align:middle">` +
+    `<polyline points="${coords}" fill="none" stroke="${color}"` +
+    ` stroke-width="1.5" stroke-linecap="round"` +
+    ` stroke-linejoin="round"/></svg>`;
+}
+
+function vramBarColor(pct) {
+  if (pct >= 90) return 'red';
+  if (pct >= 70) return 'yellow';
+  return 'green';
+}
+
 function render(data) {
-  const { nodes, models, model_count, node_count, litellm_url } = data;
+  const { nodes, models, model_count, node_count, litellm_url, node_metrics } = data;
+  const nm = node_metrics || {};
 
   // Stats
   const alwaysOn = models.filter(m => m.always_on).length;
@@ -346,14 +557,49 @@ function render(data) {
   // Nodes
   html += `<div class="section-title">Nodes</div><div class="nodes">`;
   for (const [name, n] of Object.entries(nodes)) {
-    html += `
-      <div class="node-card">
+    const m = nm[name] || {};
+    const reachable = m.reachable === true;
+    html += `<div class="node-card">
         <div class="node-name">${name}</div>
         <div class="node-detail">Host: <span>${n.host}</span></div>
-        <div class="node-detail">GPU: <span>${n.gpu.toUpperCase()}</span></div>
-        <div class="node-detail">VRAM: <span>${n.vram_gb} GB</span></div>
-        <div class="node-detail">Agent: <span>:${n.agent_port}</span></div>
-      </div>`;
+        <div class="node-detail">GPU: <span>${n.gpu.toUpperCase()}</span>
+          &middot; <span>${n.vram_gb} GB</span></div>`;
+
+    if (reachable && m.vram_pct !== null) {
+      const color = vramBarColor(m.vram_pct);
+      const hist = nodeHistory[name] || {vram:[], gpu:[]};
+      const busy = m.gpu_busy_pct;
+      html += `
+        <div class="metric-row">
+          <span class="metric-label">MEM</span>
+          <div class="vram-bar-track">
+            <div class="vram-bar-fill ${color}"
+              style="width:${m.vram_pct}%"></div>
+          </div>
+          <span class="vram-text"><strong>${m.vram_used_gb}</strong>
+            / ${m.vram_total_gb} GB</span>
+          ${sparklineSvg(hist.vram, 'var(--accent)')}
+        </div>`;
+      if (busy !== null && busy !== undefined) {
+        const bColor = busy >= 90 ? 'red' : busy >= 50 ? 'yellow' : 'green';
+        html += `
+        <div class="metric-row">
+          <span class="metric-label">GPU</span>
+          <div class="vram-bar-track">
+            <div class="vram-bar-fill ${bColor}"
+              style="width:${busy}%"></div>
+          </div>
+          <span class="vram-text"><strong>${busy}%</strong></span>
+          ${sparklineSvg(hist.gpu, 'var(--green)')}
+        </div>`;
+      }
+    } else if (reachable) {
+      html += `<div class="node-offline">No GPU metrics</div>`;
+    } else {
+      html += `<div class="node-offline">Agent offline</div>`;
+    }
+
+    html += `</div>`;
   }
   html += `</div>`;
 
@@ -380,8 +626,27 @@ function render(data) {
     if (m.nodes.length > 1) flags += '<span class="badge badge-multi">multi-node</span> ';
     if (m.tags) m.tags.forEach(t => { flags += `<span class="badge badge-tag">${t}</span> `; });
 
-    const hclass = `health-${m.health}`;
-    const hlabel = m.health === 'routed' ? 'healthy' : m.health;
+    // Determine status: prefer agent_state when available, fall back to LiteLLM health
+    let statusClass, statusLabel;
+    if (m.agent_state) {
+      statusClass = `health-${m.agent_state}`;
+      statusLabel = m.agent_state;
+    } else {
+      statusClass = `health-${m.health}`;
+      statusLabel = m.health === 'routed' ? 'healthy' : m.health;
+    }
+
+    // Secondary indicator: show LiteLLM health alongside agent state
+    let healthExtra = '';
+    if (m.agent_state && m.health !== 'unknown') {
+      const hLabel = m.health === 'routed' ? 'healthy' : m.health;
+      const hDot = `health-${m.health}`;
+      healthExtra = `<div style="font-size:0.7rem;` +
+        `color:var(--text-dim);margin-top:2px">` +
+        `<span class="health-dot ${hDot}"` +
+        ` style="width:6px;height:6px"></span>` +
+        `litellm: ${hLabel}</div>`;
+    }
 
     html += `<tr>
       <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo}</div>
@@ -392,7 +657,7 @@ function render(data) {
       <td>${aliases || '<span style="color:var(--text-dim)">—</span>'}</td>
       <td>${caps}</td>
       <td>${flags}</td>
-      <td><span class="health-dot ${hclass}"></span>${hlabel}</td>
+      <td><span class="health-dot ${statusClass}"></span>${statusLabel}${healthExtra}</td>
       <td><span class="api-base">${m.api_base}</span></td>
     </tr>`;
   }
@@ -402,7 +667,8 @@ function render(data) {
 }
 
 load();
-setInterval(load, 30000);
+setInterval(load, 30000);       // full refresh (LiteLLM + nodes)
+setInterval(pollMetrics, 2000);  // fast GPU metrics only
 </script>
 </body>
 </html>

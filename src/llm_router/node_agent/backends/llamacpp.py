@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import signal
 from pathlib import Path
@@ -18,8 +19,9 @@ from llm_router.node_agent.models import ModelState, ProcessStatus
 logger = logging.getLogger(__name__)
 
 LLAMACPP_PORT = 5391
-PID_DIR = Path("/tmp/llm-router/pids")
-LOG_DIR = Path("/tmp/llm-router/logs")
+_state_dir = Path(os.environ.get("STATE_DIRECTORY", "/tmp/llm-router"))
+PID_DIR = _state_dir / "pids"
+LOG_DIR = _state_dir / "logs"
 
 
 class LlamaCppBackend(Backend):

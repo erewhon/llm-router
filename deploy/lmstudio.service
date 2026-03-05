@@ -1,0 +1,69 @@
+# systemd unit for LMStudio on delphi
+# Wraps the Electron AppImage with practical sandboxing restrictions.
+# The key defense is network isolation — blocks outbound internet.
+#
+# Install: sudo cp lmstudio.service /etc/systemd/system/lmstudio.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now lmstudio
+#
+# Note: Runs as erewhon (needs ~/.cache/lmstudio model paths).
+# Electron/V8 JIT/GPU prevent PrivateDevices, PrivateTmp, MemoryDenyWriteExecute.
+
+[Unit]
+Description=LMStudio Inference Server
+After=network-online.target graphical.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+
+ExecStart=/home/erewhon/.lmstudio/bin/lms server start --port 1234
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# --- Filesystem sandboxing ---
+# Read-only /usr, /boot, /etc; writable only to home (LMStudio needs ~/.cache/lmstudio)
+ProtectSystem=strict
+
+# --- Kernel protections ---
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# --- Capability restrictions ---
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- System call restrictions ---
+# Electron needs broad syscall access; restrict what we can
+SystemCallFilter=@system-service @ipc @resources
+SystemCallFilter=~@privileged @mount
+SystemCallArchitectures=native
+
+# --- Namespace restrictions ---
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+# --- Memory ---
+# V8 JIT requires write+execute
+MemoryDenyWriteExecute=no
+LockPersonality=yes
+UMask=0077
+
+# --- Network isolation (most impactful measure) ---
+# Only allow localhost and LAN — blocks data exfiltration even if compromised
+IPAddressAllow=127.0.0.0/8 ::1/128 192.168.42.0/24
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,11 @@
-"""vLLM backend — start/stop vLLM via subprocess."""
+"""vLLM backend — manage vLLM via systemd template units (vllm@.service)."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import signal
+import os
+import re
 from pathlib import Path
 
 import httpx
@@ -17,8 +18,8 @@ from llm_router.node_agent.models import ModelState, ProcessStatus
 logger = logging.getLogger(__name__)
 
 VLLM_PORT = 5391
-PID_DIR = Path("/tmp/llm-router/pids")
-LOG_DIR = Path("/tmp/llm-router/logs")
+_state_dir = Path(os.environ.get("STATE_DIRECTORY", "/tmp/llm-router"))
+ENV_DIR = Path(os.environ.get("VLLM_ENV_DIR", "/etc/llm-router/vllm-env"))
 
 # Map model name patterns to vLLM tool-call-parser names
 TOOL_PARSER_MAP: list[tuple[str, str]] = [
@@ -47,74 +48,95 @@ def _auto_detect_tool_parser(model_name: str) -> str:
     return "hermes"  # fallback
 
 
+def _sanitize_unit_id(model_id: str) -> str:
+    """Sanitize a model ID for use as a systemd unit instance name.
+
+    Replaces / with - and removes other unsafe characters.
+    """
+    return re.sub(r"[^a-zA-Z0-9._-]", "-", model_id)
+
+
 class VllmBackend(Backend):
-    """Manages vLLM inference server processes."""
+    """Manages vLLM inference via systemd template units (vllm@.service).
+
+    Instead of spawning subprocesses directly, this backend:
+    1. Writes vLLM args to an env file in ENV_DIR
+    2. Uses `sudo systemctl start/stop vllm@<instance>` to manage the service
+    3. Queries systemd for process state (survives agent restarts)
+    """
 
     def __init__(self, vllm_port: int = VLLM_PORT) -> None:
         self._port = vllm_port
-        self._processes: dict[str, asyncio.subprocess.Process] = {}
         self._states: dict[str, ModelState] = {}
         self._errors: dict[str, str] = {}
-        self._log_handles: dict[str, object] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()
-        PID_DIR.mkdir(parents=True, exist_ok=True)
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     async def start(self, model_id: str, model: ModelDefinition) -> None:
-        """Start vLLM for a model."""
-        if model_id in self._processes:
-            proc = self._processes[model_id]
-            if proc.returncode is None:
-                logger.info(f"Model {model_id} already running (pid {proc.pid})")
-                return
+        """Start vLLM for a model via systemd."""
+        unit_id = _sanitize_unit_id(model_id)
+
+        # Check if already running via systemd
+        if await self._is_active(unit_id):
+            logger.info(f"Model {model_id} already running (unit vllm@{unit_id})")
+            self._states[model_id] = ModelState.RUNNING
+            return
 
         self._states[model_id] = ModelState.STARTING
         self._errors.pop(model_id, None)
 
-        cmd = self._build_command(model_id, model)
-        log_file = LOG_DIR / f"{model_id}.log"
-        logger.info(f"Starting vLLM for {model_id}: {' '.join(cmd)}")
+        # Write env file with vLLM args
+        vllm_args = self._build_vllm_args(model_id, model)
+        env_file = ENV_DIR / f"{unit_id}.env"
+        logger.info(f"Writing vLLM env for {model_id}: {env_file}")
 
         try:
-            log_fh = log_file.open("w")
-            self._log_handles[model_id] = log_fh
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=log_fh,
-                stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
-            )
-            self._processes[model_id] = proc
-
-            # Write PID file
-            pid_file = PID_DIR / f"{model_id}.pid"
-            pid_file.write_text(str(proc.pid))
-
-            # Wait for readiness in background
-            task = asyncio.create_task(self._wait_for_ready(model_id, proc))
-            self._background_tasks.add(task)
-            task.add_done_callback(self._background_tasks.discard)
-
-        except Exception as e:
+            env_file.write_text(f'VLLM_ARGS={vllm_args}\n')
+        except OSError as e:
             self._states[model_id] = ModelState.ERROR
-            self._errors[model_id] = str(e)
-            logger.error(f"Failed to start vLLM for {model_id}: {e}")
+            self._errors[model_id] = f"Failed to write env file: {e}"
+            logger.error(f"Failed to write env file for {model_id}: {e}")
             raise
 
-    async def _wait_for_ready(
-        self, model_id: str, proc: asyncio.subprocess.Process
-    ) -> None:
+        # Start the systemd unit
+        logger.info(f"Starting vllm@{unit_id}")
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "start", f"vllm@{unit_id}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+            if proc.returncode != 0:
+                err_msg = stderr.decode().strip() or f"systemctl start exited {proc.returncode}"
+                self._states[model_id] = ModelState.ERROR
+                self._errors[model_id] = err_msg
+                logger.error(f"Failed to start vllm@{unit_id}: {err_msg}")
+                raise RuntimeError(err_msg)
+        except TimeoutError:
+            self._states[model_id] = ModelState.ERROR
+            self._errors[model_id] = "Timed out starting systemd unit"
+            logger.error(f"Timed out starting vllm@{unit_id}")
+            raise
+
+        # Wait for readiness in background
+        task = asyncio.create_task(self._wait_for_ready(model_id, unit_id))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _wait_for_ready(self, model_id: str, unit_id: str) -> None:
         """Poll vLLM health until ready or failed."""
         for _attempt in range(120):  # up to ~2 minutes
-            if proc.returncode is not None:
+            # Check if systemd unit died
+            if not await self._is_active(unit_id):
                 self._states[model_id] = ModelState.ERROR
-                self._errors[model_id] = f"Process exited with code {proc.returncode}"
-                logger.error(f"vLLM for {model_id} exited early: code {proc.returncode}")
+                self._errors[model_id] = "systemd unit stopped unexpectedly"
+                logger.error(f"vllm@{unit_id} stopped unexpectedly")
                 return
 
             if await self.health_check(model_id):
                 self._states[model_id] = ModelState.RUNNING
-                logger.info(f"vLLM for {model_id} is ready (pid {proc.pid})")
+                pid = await self._get_main_pid(unit_id)
+                logger.info(f"vLLM for {model_id} is ready (unit vllm@{unit_id}, pid {pid})")
                 return
 
             await asyncio.sleep(1)
@@ -124,44 +146,53 @@ class VllmBackend(Backend):
         logger.error(f"vLLM for {model_id} timed out")
 
     async def stop(self, model_id: str) -> None:
-        """Stop vLLM for a model."""
-        proc = self._processes.get(model_id)
-        if proc and proc.returncode is None:
-            logger.info(f"Stopping vLLM for {model_id} (pid {proc.pid})")
-            proc.send_signal(signal.SIGTERM)
-            try:
-                await asyncio.wait_for(proc.wait(), timeout=15)
-            except TimeoutError:
-                logger.warning(f"Force-killing vLLM for {model_id}")
-                proc.kill()
-                await proc.wait()
+        """Stop vLLM for a model via systemd."""
+        unit_id = _sanitize_unit_id(model_id)
+        logger.info(f"Stopping vllm@{unit_id}")
 
-        self._processes.pop(model_id, None)
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "systemctl", "stop", f"vllm@{unit_id}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            await asyncio.wait_for(proc.communicate(), timeout=45)
+        except TimeoutError:
+            logger.warning(f"Timed out stopping vllm@{unit_id}")
+
         self._states[model_id] = ModelState.STOPPED
         self._errors.pop(model_id, None)
 
-        log_fh = self._log_handles.pop(model_id, None)
-        if log_fh and hasattr(log_fh, "close"):
-            log_fh.close()
-
-        pid_file = PID_DIR / f"{model_id}.pid"
-        pid_file.unlink(missing_ok=True)
-
     async def status(self, model_id: str) -> ProcessStatus:
-        """Get current status of a model."""
+        """Get current status of a model from systemd."""
+        unit_id = _sanitize_unit_id(model_id)
         state = self._states.get(model_id, ModelState.STOPPED)
-        proc = self._processes.get(model_id)
 
-        # Check if process died unexpectedly
-        if proc and proc.returncode is not None and state == ModelState.RUNNING:
+        # If we think it's running or starting, verify with systemd
+        is_starting_or_running = state in (ModelState.RUNNING, ModelState.STARTING)
+        if is_starting_or_running and not await self._is_active(unit_id):
             state = ModelState.ERROR
             self._states[model_id] = state
-            self._errors[model_id] = f"Process exited with code {proc.returncode}"
+            self._errors[model_id] = "systemd unit is not active"
+
+        # If we think it's stopped, check if systemd knows about a running instance
+        # (handles agent restart scenario)
+        if state == ModelState.STOPPED and await self._is_active(unit_id):
+            # Rediscover running model after agent restart
+            if await self.health_check(model_id):
+                state = ModelState.RUNNING
+                self._states[model_id] = state
+                logger.info(f"Rediscovered running vllm@{unit_id}")
+            else:
+                state = ModelState.STARTING
+                self._states[model_id] = state
+
+        pid = await self._get_main_pid(unit_id) if state == ModelState.RUNNING else None
 
         return ProcessStatus(
             model_id=model_id,
             state=state,
-            pid=proc.pid if proc and proc.returncode is None else None,
+            pid=pid,
             port=self._port if state == ModelState.RUNNING else None,
             error=self._errors.get(model_id),
         )
@@ -178,18 +209,41 @@ class VllmBackend(Backend):
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
             return False
 
-    def _build_command(self, model_id: str, model: ModelDefinition) -> list[str]:
-        """Build the vLLM startup command."""
-        cmd = [
-            "python3",
-            "-m",
-            "vllm.entrypoints.openai.api_server",
-            "--model",
-            model.hf_repo,
-            "--host",
-            "0.0.0.0",
-            "--port",
-            str(self._port),
+    async def _is_active(self, unit_id: str) -> bool:
+        """Check if a systemd unit is active."""
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "systemctl", "is-active", f"vllm@{unit_id}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        return stdout.decode().strip() == "active"
+
+    async def _get_main_pid(self, unit_id: str) -> int | None:
+        """Get the MainPID of a systemd unit."""
+        proc = await asyncio.create_subprocess_exec(
+            "sudo", "systemctl", "show", f"vllm@{unit_id}",
+            "--property=MainPID",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await proc.communicate()
+        # Output: "MainPID=12345\n"
+        output = stdout.decode().strip()
+        if output.startswith("MainPID="):
+            try:
+                pid = int(output.split("=", 1)[1])
+                return pid if pid > 0 else None
+            except ValueError:
+                return None
+        return None
+
+    def _build_vllm_args(self, model_id: str, model: ModelDefinition) -> str:
+        """Build vLLM command-line args as a single string for the env file."""
+        args: list[str] = [
+            "--model", model.hf_repo,
+            "--host", "0.0.0.0",
+            "--port", str(self._port),
         ]
 
         # GPU memory utilization
@@ -200,33 +254,30 @@ class VllmBackend(Backend):
                 gpu_util = compute_gpu_memory_utilization(gpu_info, model.vram_gb)
             except RuntimeError:
                 gpu_util = 0.80  # safe default
-        cmd.extend(["--gpu-memory-utilization", str(gpu_util)])
+        args.extend(["--gpu-memory-utilization", str(gpu_util)])
 
         # Tool calling
         parser = model.vllm_args.tool_call_parser
         if parser is None:
             parser = _auto_detect_tool_parser(model.hf_repo)
-        cmd.extend([
+        args.extend([
             "--enable-auto-tool-choice",
-            "--tool-call-parser",
-            parser,
+            "--tool-call-parser", parser,
         ])
 
         # Max model len
         if model.vllm_args.max_model_len:
-            cmd.extend(["--max-model-len", str(model.vllm_args.max_model_len)])
+            args.extend(["--max-model-len", str(model.vllm_args.max_model_len)])
 
         # Multi-node / tensor parallelism
         if model.multi_node:
             tp = model.multi_node.tensor_parallel_size
-            cmd.extend([
-                "--tensor-parallel-size",
-                str(tp),
-                "--distributed-executor-backend",
-                "ray",
+            args.extend([
+                "--tensor-parallel-size", str(tp),
+                "--distributed-executor-backend", "ray",
             ])
 
         # Extra args
-        cmd.extend(model.vllm_args.extra_args)
+        args.extend(model.vllm_args.extra_args)
 
-        return cmd
+        return " ".join(args)

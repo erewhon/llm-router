@@ -1,7 +1,9 @@
-# systemd unit for llm-router node agent
+# systemd unit for llm-router node agent (sandboxed)
 # Install: sudo cp node-agent.service /etc/systemd/system/llm-router-agent.service
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now llm-router-agent
+#
+# Requires: useradd --system --shell /usr/sbin/nologin llm-router
 
 [Unit]
 Description=LLM Router Node Agent
@@ -10,9 +12,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=erewhon
-WorkingDirectory=/home/erewhon/Projects/erewhon/llm-router
+User=llm-router
+Group=llm-router
+
 ExecStart=/home/erewhon/Projects/erewhon/llm-router/.venv/bin/python -m llm_router.node_agent.main --port 8100
+
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -20,6 +24,67 @@ StandardError=journal
 
 # Environment
 Environment=PATH=/home/erewhon/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# --- State directories (systemd creates & owns these) ---
+# /var/lib/llm-router — persistent state (logs, env files for vLLM units)
+StateDirectory=llm-router
+# /run/llm-router — ephemeral runtime data (PID files)
+RuntimeDirectory=llm-router
+
+# --- Filesystem sandboxing ---
+
+# Read-only access to /usr, /boot, /etc; writable only to StateDirectory/RuntimeDirectory
+ProtectSystem=strict
+
+# Empty /home, then bind-mount only what the agent needs
+ProtectHome=tmpfs
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/src
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/models.yaml
+BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+
+# Private /tmp and /var/tmp
+PrivateTmp=yes
+
+# --- Kernel protections ---
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# --- Capability restrictions ---
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- System call restrictions ---
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount
+SystemCallArchitectures=native
+
+# --- Namespace and address restrictions ---
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+# --- Device access ---
+# GPU sysfs monitoring needs device access (reads /sys/class/drm, runs nvidia-smi)
+PrivateDevices=no
+# Bind GPU sysfs paths for monitoring
+BindReadOnlyPaths=/sys/class/drm
+
+# --- Memory ---
+MemoryDenyWriteExecute=no
+LockPersonality=yes
+UMask=0077
+
+# --- Network isolation ---
+# Only allow localhost, LAN (node-to-node communication), deny everything else
+IPAddressAllow=127.0.0.0/8 ::1/128 192.168.42.0/24
+IPAddressDeny=any
 
 [Install]
 WantedBy=multi-user.target

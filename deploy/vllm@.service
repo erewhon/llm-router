@@ -1,0 +1,91 @@
+# systemd template unit for vLLM inference backends
+# Install: sudo cp vllm@.service /etc/systemd/system/vllm@.service
+#          sudo systemctl daemon-reload
+#
+# Usage: systemctl start vllm@model-id  (model-id has / replaced with -)
+# Config: /etc/llm-router/vllm-env/<instance>.env
+#
+# Requires: useradd --system --shell /usr/sbin/nologin llm-vllm
+#           usermod -aG video llm-vllm  (NVIDIA) or video,render (AMD)
+#           mkdir -p /etc/llm-router/vllm-env && chown llm-router:llm-vllm /etc/llm-router/vllm-env && chmod 0750 /etc/llm-router/vllm-env
+
+[Unit]
+Description=vLLM Inference Server (%i)
+After=network-online.target
+Wants=network-online.target
+
+# Only one vLLM model at a time on port 5391
+Conflicts=vllm@*.service
+
+[Service]
+Type=simple
+User=llm-vllm
+Group=llm-vllm
+
+# Node agent writes vLLM args to this env file before starting the unit
+EnvironmentFile=/etc/llm-router/vllm-env/%i.env
+
+# VLLM_ARGS is set in the env file by the node agent
+ExecStart=/bin/bash -c 'exec python3 -m vllm.entrypoints.openai.api_server ${VLLM_ARGS}'
+
+Restart=no
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vllm@%i
+
+# --- Filesystem sandboxing ---
+ProtectSystem=strict
+ProtectHome=tmpfs
+PrivateTmp=yes
+
+# Bind vLLM venv and HuggingFace model cache
+BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
+BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+BindReadOnlyPaths=/home/erewhon/.cache/huggingface
+
+# State for vLLM (compilation cache, etc.)
+StateDirectory=llm-vllm
+
+# --- Kernel protections ---
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+
+# --- Capability restrictions ---
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# --- System call restrictions ---
+# CUDA/ROCm needs @ipc (shared memory) and @resources (setrlimit, mbind)
+SystemCallFilter=@system-service @ipc @resources
+SystemCallFilter=~@privileged @mount
+SystemCallArchitectures=native
+
+# --- Namespace and address restrictions ---
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+
+# --- Device access ---
+# GPU inference needs device access
+PrivateDevices=no
+
+# --- Memory ---
+# CUDA JIT requires write+execute
+MemoryDenyWriteExecute=no
+LockPersonality=yes
+UMask=0077
+
+# --- Network isolation ---
+# Only allow localhost and LAN — blocks outbound internet (prompt injection defense)
+IPAddressAllow=127.0.0.0/8 ::1/128 192.168.42.0/24
+IPAddressDeny=any
+
+[Install]
+WantedBy=multi-user.target

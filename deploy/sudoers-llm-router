@@ -1,0 +1,10 @@
+# Sudoers rules for llm-router node agent to manage vLLM systemd units
+# Install: sudo cp sudoers-llm-router /etc/sudoers.d/llm-router
+#          sudo chmod 0440 /etc/sudoers.d/llm-router
+#          sudo visudo -c  (validate syntax)
+
+# Allow llm-router to start/stop/query vLLM template instances
+llm-router ALL=(root) NOPASSWD: /usr/bin/systemctl start vllm@*
+llm-router ALL=(root) NOPASSWD: /usr/bin/systemctl stop vllm@*
+llm-router ALL=(root) NOPASSWD: /usr/bin/systemctl is-active vllm@*
+llm-router ALL=(root) NOPASSWD: /usr/bin/systemctl show vllm@*

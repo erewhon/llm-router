@@ -148,11 +148,12 @@ def test_vllm_build_command_multi_node():
         "llm_router.node_agent.backends.vllm.get_gpu_info",
         side_effect=RuntimeError("no GPU"),
     ):
-        cmd = backend._build_command("llama4-scout", model)
+        args_str = backend._build_vllm_args("llama4-scout", model)
 
-    assert "--tensor-parallel-size" in cmd
-    idx = cmd.index("--tensor-parallel-size")
-    assert cmd[idx + 1] == "2"
-    assert "--distributed-executor-backend" in cmd
-    idx2 = cmd.index("--distributed-executor-backend")
-    assert cmd[idx2 + 1] == "ray"
+    args = args_str.split()
+    assert "--tensor-parallel-size" in args
+    idx = args.index("--tensor-parallel-size")
+    assert args[idx + 1] == "2"
+    assert "--distributed-executor-backend" in args
+    idx2 = args.index("--distributed-executor-backend")
+    assert args[idx2 + 1] == "ray"

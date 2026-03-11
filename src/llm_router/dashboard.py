@@ -71,6 +71,9 @@ async def _fetch_node_metrics(
                         round(used / total * 100, 1) if total > 0 else 0
                     )
                 result["gpu_busy_pct"] = h.get("gpu_busy_pct")
+                result["services"] = h.get("services", [])
+                result["disk_free_gb"] = h.get("disk_free_gb")
+                result["disk_total_gb"] = h.get("disk_total_gb")
                 result["reachable"] = True
 
             if not isinstance(models_resp, Exception) and models_resp.status_code == 200:
@@ -203,13 +206,14 @@ async def api_models():
             "head_node": head,
             "vram_gb": model.vram_gb,
             "always_on": model.always_on,
+            "enabled": model.enabled,
             "tool_proxy": model.tool_proxy,
             "aliases": model.aliases,
             "capabilities": [c.value for c in model.capabilities],
             "tags": model.tags,
             "api_base": api_base,
-            "health": health,
-            "agent_state": agent_state,
+            "health": health if model.enabled else "disabled",
+            "agent_state": agent_state if model.enabled else None,
             "gguf_file": model.gguf_file,
         })
 
@@ -394,6 +398,9 @@ DASHBOARD_HTML = """\
   .health-starting { background: var(--yellow); }
   .health-stopped { background: var(--text-dim); }
   .health-error { background: var(--red); }
+  .health-disabled { background: var(--text-dim); }
+
+  tr.disabled td { opacity: 0.45; }
 
   .api-base {
     font-family: 'SF Mono', 'Fira Code', monospace;
@@ -537,7 +544,7 @@ function render(data) {
           <span style="color:var(--text-dim); font-size:0.75rem">(from delphi only)</span>
         </div>
         <div class="node-detail" style="margin-top:0.5rem">
-          <strong>API Key:</strong> <span>any non-empty string</span>
+          <strong>API Key:</strong> <span class="api-base">sk-litellm-master</span>
         </div>
         <div class="node-detail" style="margin-top:0.5rem">
           <strong>Model:</strong> <span>use the model ID or any alias from the table below</span>
@@ -547,7 +554,7 @@ function render(data) {
         <div class="node-name">Example</div>
         <div style="margin-top:0.5rem">
           <span class="api-base">curl ${tsUrl}/v1/chat/completions \\<br>
-          &nbsp;&nbsp;-H "Authorization: Bearer anything" \\<br>
+          &nbsp;&nbsp;-H "Authorization: Bearer sk-litellm-master" \\<br>
           &nbsp;&nbsp;-H "Content-Type: application/json" \\<br>
           &nbsp;&nbsp;-d '{"model":"${models[0]?.aliases?.[0] || models[0]?.id || 'MODEL'}","messages":[{"role":"user","content":"Hello"}]}'</span>
         </div>
@@ -599,6 +606,54 @@ function render(data) {
       html += `<div class="node-offline">Agent offline</div>`;
     }
 
+    // Disk usage
+    if (reachable && m.disk_free_gb !== null && m.disk_free_gb !== undefined
+        && m.disk_total_gb !== null && m.disk_total_gb !== undefined) {
+      const diskUsed = (m.disk_total_gb - m.disk_free_gb).toFixed(0);
+      const diskPct = ((m.disk_total_gb - m.disk_free_gb) / m.disk_total_gb * 100).toFixed(1);
+      const diskColor = diskPct >= 90 ? 'red' : diskPct >= 75 ? 'yellow' : 'green';
+      html += `
+        <div class="metric-row">
+          <span class="metric-label">DISK</span>
+          <div class="vram-bar-track">
+            <div class="vram-bar-fill ${diskColor}"
+              style="width:${diskPct}%"></div>
+          </div>
+          <span class="vram-text"><strong>${diskUsed}</strong>
+            / ${m.disk_total_gb.toFixed(0)} GB
+            (${m.disk_free_gb.toFixed(0)} free)</span>
+        </div>`;
+    }
+
+    // Services (ComfyUI, etc.)
+    const svcs = m.services || [];
+    for (const svc of svcs) {
+      html += `<div style="margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--border)">`;
+      const dot = svc.reachable ? 'health-running' : 'health-stopped';
+      const lbl = svc.label || svc.name;
+      html += `<div style="font-size:0.8rem;font-weight:500">` +
+        `<span class="health-dot ${dot}"></span>${lbl}</div>`;
+      if (svc.reachable && svc.vram_used_gb !== null && svc.vram_total_gb !== null) {
+        const svcPct = (svc.vram_used_gb / svc.vram_total_gb * 100).toFixed(1);
+        const svcColor = vramBarColor(parseFloat(svcPct));
+        html += `
+          <div class="metric-row">
+            <span class="metric-label">MEM</span>
+            <div class="vram-bar-track">
+              <div class="vram-bar-fill ${svcColor}"
+                style="width:${svcPct}%"></div>
+            </div>
+            <span class="vram-text"><strong>${svc.vram_used_gb}</strong>
+              / ${svc.vram_total_gb} GB</span>
+          </div>`;
+      }
+      if (svc.queue_running > 0 || svc.queue_pending > 0) {
+        html += `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px">` +
+          `Queue: ${svc.queue_running} running, ${svc.queue_pending} pending</div>`;
+      }
+      html += `</div>`;
+    }
+
     html += `</div>`;
   }
   html += `</div>`;
@@ -620,6 +675,7 @@ function render(data) {
     const caps = m.capabilities.map(c => `<span class="badge badge-cap">${c}</span>`).join(' ');
 
     let flags = '';
+    if (m.enabled === false) flags += '<span class="badge badge-off">disabled</span> ';
     if (m.always_on) flags += '<span class="badge badge-on">always-on</span> ';
     else flags += '<span class="badge badge-off">on-demand</span> ';
     if (m.tool_proxy) flags += '<span class="badge badge-tool">tool-proxy</span> ';
@@ -648,7 +704,8 @@ function render(data) {
         `litellm: ${hLabel}</div>`;
     }
 
-    html += `<tr>
+    const rowClass = m.enabled === false ? ' class="disabled"' : '';
+    html += `<tr${rowClass}>
       <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo}</div>
         ${m.gguf_file ? `<div class="model-repo">${m.gguf_file}</div>` : ''}</td>
       <td><span class="badge badge-backend">${m.backend}</span></td>

@@ -41,6 +41,17 @@ class ModelStatusResponse(BaseModel):
     error: str | None = None
 
 
+class ServiceStatusResponse(BaseModel):
+    name: str
+    service_type: str
+    label: str = ""
+    reachable: bool = False
+    vram_used_gb: float | None = None
+    vram_total_gb: float | None = None
+    queue_running: int = 0
+    queue_pending: int = 0
+
+
 class NodeHealthResponse(BaseModel):
     status: str = "ok"
     node: str
@@ -48,7 +59,10 @@ class NodeHealthResponse(BaseModel):
     total_vram_gb: float | None = None
     free_vram_gb: float | None = None
     gpu_busy_pct: int | None = None
+    disk_free_gb: float | None = None
+    disk_total_gb: float | None = None
     running_models: list[str] = []
+    services: list[ServiceStatusResponse] = []
 
 
 class ModelListEntry(BaseModel):

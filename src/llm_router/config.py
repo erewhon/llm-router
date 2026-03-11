@@ -28,11 +28,22 @@ class GpuType(StrEnum):
     NVIDIA = "nvidia"
 
 
+class ServiceType(StrEnum):
+    COMFYUI = "comfyui"
+
+
+class ServiceDefinition(BaseModel):
+    type: ServiceType
+    port: int
+    label: str = ""
+
+
 class NodeDefinition(BaseModel):
     host: str
     gpu: GpuType
     vram_gb: int
     agent_port: int = 8100
+    services: dict[str, ServiceDefinition] = Field(default_factory=dict)
 
 
 class MultiNodeConfig(BaseModel):
@@ -61,6 +72,7 @@ class ModelDefinition(BaseModel):
     multi_node: MultiNodeConfig | None = None
     vram_gb: int = 0
     always_on: bool = False
+    enabled: bool = True  # False = model shown in dashboard but not started/health-checked
     tool_proxy: bool = False
     aliases: list[str] = Field(default_factory=list)
     capabilities: list[ModelCapability] = Field(default_factory=lambda: [ModelCapability.TEXT])
@@ -112,13 +124,19 @@ class ModelRegistry(BaseModel):
             return f"http://{host}:5392/v1"
         return f"http://{host}:5391/v1"
 
-    def models_for_node(self, node_name: str) -> dict[str, ModelDefinition]:
-        """Get all models assigned to a specific node."""
+    def models_for_node(
+        self, node_name: str, *, enabled_only: bool = True
+    ) -> dict[str, ModelDefinition]:
+        """Get all models assigned to a specific node.
+
+        By default only returns enabled models.  Pass enabled_only=False
+        to include disabled models (e.g. for dashboard display).
+        """
         return {
             mid: m
             for mid, m in self.models.items()
-            if m.node == node_name
-            or (m.multi_node and node_name in m.multi_node.nodes)
+            if (m.node == node_name or (m.multi_node and node_name in m.multi_node.nodes))
+            and (not enabled_only or m.enabled)
         }
 
 

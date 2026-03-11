@@ -8,6 +8,7 @@ from llm_router.config import (
     GpuType,
     ModelCapability,
     ModelRegistry,
+    ServiceType,
     load_registry,
     load_registry_from_dict,
 )
@@ -174,3 +175,40 @@ def test_default_capabilities():
     }
     reg = load_registry_from_dict(data)
     assert reg.models["m"].capabilities == [ModelCapability.TEXT]
+
+
+def test_node_without_services():
+    """Node without services field defaults to empty dict."""
+    data = {
+        "nodes": {"n": {"host": "n", "gpu": "nvidia", "vram_gb": 32}},
+        "models": {"m": {"hf_repo": "org/Model", "node": "n"}},
+    }
+    reg = load_registry_from_dict(data)
+    assert reg.nodes["n"].services == {}
+
+
+def test_node_with_services():
+    """Node with services parses correctly."""
+    data = {
+        "nodes": {
+            "n": {
+                "host": "n",
+                "gpu": "nvidia",
+                "vram_gb": 128,
+                "services": {
+                    "comfyui": {
+                        "type": "comfyui",
+                        "port": 8188,
+                        "label": "ComfyUI",
+                    }
+                },
+            }
+        },
+        "models": {"m": {"hf_repo": "org/Model", "node": "n"}},
+    }
+    reg = load_registry_from_dict(data)
+    assert "comfyui" in reg.nodes["n"].services
+    svc = reg.nodes["n"].services["comfyui"]
+    assert svc.type == ServiceType.COMFYUI
+    assert svc.port == 8188
+    assert svc.label == "ComfyUI"

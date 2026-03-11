@@ -65,15 +65,22 @@ class VllmBackend(Backend):
     3. Queries systemd for process state (survives agent restarts)
     """
 
-    def __init__(self, vllm_port: int = VLLM_PORT) -> None:
-        self._port = vllm_port
+    def __init__(self) -> None:
+        self._ports: dict[str, int] = {}  # model_id -> port
         self._states: dict[str, ModelState] = {}
         self._errors: dict[str, str] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()
 
+    @staticmethod
+    def _get_port(model: ModelDefinition) -> int:
+        """Return the port for a model (api_port override or default)."""
+        return model.api_port or VLLM_PORT
+
     async def start(self, model_id: str, model: ModelDefinition) -> None:
         """Start vLLM for a model via systemd."""
         unit_id = _sanitize_unit_id(model_id)
+        port = self._get_port(model)
+        self._ports[model_id] = port
 
         # Check if already running via systemd
         if await self._is_active(unit_id):
@@ -84,13 +91,14 @@ class VllmBackend(Backend):
         self._states[model_id] = ModelState.STARTING
         self._errors.pop(model_id, None)
 
-        # Write env file with vLLM args
-        vllm_args = self._build_vllm_args(model_id, model)
-        env_file = ENV_DIR / f"{unit_id}.env"
-        logger.info(f"Writing vLLM env for {model_id}: {env_file}")
+        # Write args file (plain text, read by bash $(cat ...) in vllm@.service)
+        vllm_args = self._build_vllm_args(model_id, model, port)
+        args_file = ENV_DIR / f"{unit_id}.args"
+        logger.info(f"Writing vLLM args for {model_id}: {args_file}")
 
         try:
-            env_file.write_text(f'VLLM_ARGS={vllm_args}\n')
+            args_file.write_text(vllm_args + "\n")
+            args_file.chmod(0o644)  # readable by llm-vllm user
         except OSError as e:
             self._states[model_id] = ModelState.ERROR
             self._errors[model_id] = f"Failed to write env file: {e}"
@@ -188,21 +196,23 @@ class VllmBackend(Backend):
                 self._states[model_id] = state
 
         pid = await self._get_main_pid(unit_id) if state == ModelState.RUNNING else None
+        port = self._ports.get(model_id, VLLM_PORT)
 
         return ProcessStatus(
             model_id=model_id,
             state=state,
             pid=pid,
-            port=self._port if state == ModelState.RUNNING else None,
+            port=port if state == ModelState.RUNNING else None,
             error=self._errors.get(model_id),
         )
 
     async def health_check(self, model_id: str) -> bool:
         """Check if vLLM is responding to requests."""
+        port = self._ports.get(model_id, VLLM_PORT)
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(
-                    f"http://localhost:{self._port}/v1/models",
+                    f"http://localhost:{port}/v1/models",
                     timeout=5,
                 )
                 return resp.status_code == 200
@@ -238,12 +248,12 @@ class VllmBackend(Backend):
                 return None
         return None
 
-    def _build_vllm_args(self, model_id: str, model: ModelDefinition) -> str:
+    def _build_vllm_args(self, model_id: str, model: ModelDefinition, port: int) -> str:
         """Build vLLM command-line args as a single string for the env file."""
         args: list[str] = [
             "--model", model.hf_repo,
             "--host", "0.0.0.0",
-            "--port", str(self._port),
+            "--port", str(port),
         ]
 
         # GPU memory utilization
@@ -277,7 +287,7 @@ class VllmBackend(Backend):
                 "--distributed-executor-backend", "ray",
             ])
 
-        # Extra args
+        # Extra args (values must not contain spaces — use compact JSON)
         args.extend(model.vllm_args.extra_args)
 
         return " ".join(args)

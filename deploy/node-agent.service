@@ -35,6 +35,8 @@ RuntimeDirectory=llm-router
 
 # Read-only access to /usr, /boot, /etc; writable only to StateDirectory/RuntimeDirectory
 ProtectSystem=strict
+# Node agent writes vLLM env files here before starting vllm@ units
+ReadWritePaths=/etc/llm-router/vllm-env
 
 # Empty /home, then bind-mount only what the agent needs
 ProtectHome=tmpfs
@@ -58,20 +60,24 @@ ProtectClock=yes
 ProtectHostname=yes
 
 # --- Capability restrictions ---
-NoNewPrivileges=yes
-CapabilityBoundingSet=
+# NoNewPrivileges must be off: agent uses sudo to manage vllm@ systemd units
+NoNewPrivileges=no
+# sudo needs CAP_SETUID/CAP_SETGID to escalate for systemctl
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_DAC_READ_SEARCH
 AmbientCapabilities=
 
 # --- System call restrictions ---
-SystemCallFilter=@system-service
-SystemCallFilter=~@privileged @resources @mount
+# No syscall filter: agent needs sudo to manage vllm@ systemd units,
+# which requires a broad set of syscalls. Other sandboxing layers
+# (ProtectSystem, network isolation, filesystem) provide defense.
 SystemCallArchitectures=native
 
 # --- Namespace and address restrictions ---
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
 RestrictNamespaces=yes
 RestrictRealtime=yes
-RestrictSUIDSGID=yes
+# SUID needed for sudo to manage vllm@ units
+RestrictSUIDSGID=no
 
 # --- Device access ---
 # GPU sysfs monitoring needs device access (reads /sys/class/drm, runs nvidia-smi)

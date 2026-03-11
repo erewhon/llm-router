@@ -16,6 +16,13 @@ SAMPLE_REGISTRY = {
             "gpu": "nvidia",
             "vram_gb": 64,
             "agent_port": 8100,
+            "services": {
+                "comfyui": {
+                    "type": "comfyui",
+                    "port": 8188,
+                    "label": "ComfyUI",
+                }
+            },
         },
     },
     "models": {
@@ -40,12 +47,31 @@ def client():
 
 def test_health(client):
     # gpu.get_gpu_info is imported locally inside the health endpoint
-    with patch("llm_router.node_agent.gpu.get_gpu_info", side_effect=RuntimeError("no GPU")):
+    from llm_router.node_agent.services import ServiceStatus
+
+    mock_svc = ServiceStatus(
+        name="comfyui",
+        service_type="comfyui",
+        label="ComfyUI",
+        reachable=True,
+    )
+    with (
+        patch("llm_router.node_agent.gpu.get_gpu_info", side_effect=RuntimeError("no GPU")),
+        patch(
+            "llm_router.node_agent.services.probe_service",
+            new_callable=AsyncMock,
+            return_value=mock_svc,
+        ),
+    ):
         resp = client.get("/health")
     assert resp.status_code == 200
     data = resp.json()
     assert data["node"] == "testnode"
     assert data["status"] == "ok"
+    assert len(data["services"]) == 1
+    svc = data["services"][0]
+    assert svc["name"] == "comfyui"
+    assert svc["reachable"] is True
 
 
 def test_list_models(client):

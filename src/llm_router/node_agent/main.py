@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import socket
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,6 +26,7 @@ from llm_router.node_agent.models import (
     NodeHealthResponse,
     RayJoinRequest,
     RayStatusResponse,
+    ServiceStatusResponse,
 )
 from llm_router.node_agent.ray_cluster import RayClusterManager
 
@@ -190,13 +192,48 @@ async def health() -> NodeHealthResponse:
     except Exception:
         pass
 
+    # Root volume disk space
+    disk_free: float | None = None
+    disk_total: float | None = None
+    try:
+        usage = shutil.disk_usage("/")
+        disk_free = round(usage.free / (1024**3), 1)
+        disk_total = round(usage.total / (1024**3), 1)
+    except OSError:
+        pass
+
+    # Probe co-located services (ComfyUI, etc.)
+    service_results: list[ServiceStatusResponse] = []
+    node_def = _registry.nodes.get(_node_name)
+    if node_def and node_def.services:
+        from llm_router.node_agent.services import probe_service
+
+        for svc_name, svc_def in node_def.services.items():
+            try:
+                svc_status = await probe_service(svc_name, svc_def, node_def.host)
+                service_results.append(ServiceStatusResponse(
+                    name=svc_status.name,
+                    service_type=svc_status.service_type,
+                    label=svc_status.label,
+                    reachable=svc_status.reachable,
+                    vram_used_gb=svc_status.vram_used_gb,
+                    vram_total_gb=svc_status.vram_total_gb,
+                    queue_running=svc_status.queue_running,
+                    queue_pending=svc_status.queue_pending,
+                ))
+            except Exception:
+                logger.debug(f"Failed to probe service {svc_name}", exc_info=True)
+
     return NodeHealthResponse(
         node=_node_name,
         gpu_type=gpu_type,
         total_vram_gb=total_vram,
         free_vram_gb=free_vram,
         gpu_busy_pct=gpu_busy,
+        disk_free_gb=disk_free,
+        disk_total_gb=disk_total,
         running_models=running,
+        services=service_results,
     )
 
 

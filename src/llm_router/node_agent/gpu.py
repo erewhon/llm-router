@@ -240,7 +240,9 @@ def compute_gpu_memory_utilization(
     free_mb = gpu_info.free_vram_mb
 
     if requested_vram_gb > 0:
-        requested_mb = requested_vram_gb * 1024
+        # Add headroom for KV cache + CUDA overhead on top of model weights
+        kv_headroom_gb = max(4, requested_vram_gb * 0.15)
+        requested_mb = (requested_vram_gb + kv_headroom_gb) * 1024
         util = requested_mb / total_mb
     else:
         util = (free_mb * 0.8) / total_mb

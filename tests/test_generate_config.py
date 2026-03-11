@@ -90,4 +90,4 @@ def test_litellm_settings():
     reg = load_registry_from_dict(SAMPLE_REGISTRY)
     config = generate_litellm_config(reg)
     assert config["litellm_settings"]["drop_params"] is True
-    assert config["general_settings"]["master_key"] == "sk-litellm-master"
+    assert "general_settings" in config

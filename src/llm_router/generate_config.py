@@ -55,6 +55,8 @@ def generate_litellm_config(registry: ModelRegistry) -> dict:
     model_list: list[dict] = []
 
     for model_id, model in registry.models.items():
+        if not model.enabled:
+            continue
         # Primary entry
         entry = _litellm_model_entry(model_id, model, registry)
         model_list.append(entry)

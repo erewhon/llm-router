@@ -51,6 +51,13 @@ if [[ "$NODE_TYPE" == "nvidia-node" || "$NODE_TYPE" == "all" ]]; then
         info "  User llm-vllm already exists"
     fi
 
+    # Create /opt/llm-vllm for vLLM venv and HF cache
+    info "Creating /opt/llm-vllm directory"
+    mkdir -p /opt/llm-vllm
+    chown llm-vllm:llm-vllm /opt/llm-vllm
+    chmod 0750 /opt/llm-vllm
+    info "  /opt/llm-vllm (llm-vllm:llm-vllm, 0750)"
+
     # Add llm-vllm to GPU groups
     info "Adding llm-vllm to GPU groups"
     if getent group video &>/dev/null; then

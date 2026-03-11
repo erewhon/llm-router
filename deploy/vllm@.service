@@ -1,93 +1,53 @@
-# systemd template unit for vLLM inference backends
+# systemd template unit for vLLM inference backends (Docker)
 # Install: sudo cp vllm@.service /etc/systemd/system/vllm@.service
 #          sudo systemctl daemon-reload
 #
 # Usage: systemctl start vllm@model-id  (model-id has / replaced with -)
-# Config: /etc/llm-router/vllm-env/<instance>.env
+# Config: /etc/llm-router/vllm-env/<instance>.args  (one-line vLLM CLI args)
 #
-# Requires: useradd --system --shell /usr/sbin/nologin llm-vllm
-#           usermod -aG video llm-vllm  (NVIDIA) or video,render (AMD)
-#           mkdir -p /etc/llm-router/vllm-env && chown llm-router:llm-vllm /etc/llm-router/vllm-env && chmod 0750 /etc/llm-router/vllm-env
+# Requires: Docker with NVIDIA container toolkit
+#           mkdir -p /etc/llm-router/vllm-env && chown llm-router /etc/llm-router/vllm-env
+#           mkdir -p /opt/llm-vllm/hf-cache  (pre-downloaded models)
 
 [Unit]
 Description=vLLM Inference Server (%i)
-After=network-online.target
+After=network-online.target docker.service
 Wants=network-online.target
-
-# Only one vLLM model at a time on port 5391
-Conflicts=vllm@*.service
+Requires=docker.service
 
 [Service]
 Type=simple
-User=llm-vllm
-Group=llm-vllm
 
-# Node agent writes vLLM args to this env file before starting the unit
-EnvironmentFile=/etc/llm-router/vllm-env/%i.env
+# Default Docker image — override via /etc/llm-router/vllm-env/<instance>.image
+Environment=VLLM_IMAGE=vllm/vllm-openai:latest
 
-# VLLM_ARGS is set in the env file by the node agent
-ExecStart=/bin/bash -c 'exec python3 -m vllm.entrypoints.openai.api_server ${VLLM_ARGS}'
+# Node agent writes vLLM CLI args to a plain text file.
+# Optional per-instance image override file (e.g. for nightly).
+ExecStartPre=/bin/bash -c 'docker rm -f vllm-%i 2>/dev/null || true'
+ExecStart=/bin/bash -c '\
+    IMAGE=${VLLM_IMAGE}; \
+    [ -f /etc/llm-router/vllm-env/%i.image ] && IMAGE=$(cat /etc/llm-router/vllm-env/%i.image); \
+    exec docker run --rm \
+        --name vllm-%i \
+        --gpus all \
+        --network host \
+        --ipc host \
+        -v /opt/llm-vllm/hf-cache:/root/.cache/huggingface:ro \
+        -e HF_HUB_OFFLINE=1 \
+        "$IMAGE" \
+        $(cat /etc/llm-router/vllm-env/%i.args)'
+
+ExecStop=/usr/bin/docker stop -t 30 vllm-%i
 
 Restart=no
-TimeoutStopSec=30
+TimeoutStopSec=45
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vllm@%i
 
-# --- Filesystem sandboxing ---
-ProtectSystem=strict
-ProtectHome=tmpfs
-PrivateTmp=yes
-
-# Bind vLLM venv and HuggingFace model cache
-BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
-BindReadOnlyPaths=-/home/erewhon/.local/share/uv/python
-BindReadOnlyPaths=/home/erewhon/.cache/huggingface
-# Linuxbrew Python on NVIDIA nodes (archimedes, hypatia) — optional, '-' skips if absent
-BindReadOnlyPaths=-/home/linuxbrew
-
-# State for vLLM (compilation cache, etc.)
-StateDirectory=llm-vllm
-
-# --- Kernel protections ---
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectKernelLogs=yes
-ProtectControlGroups=yes
-ProtectClock=yes
-ProtectHostname=yes
-
-# --- Capability restrictions ---
-NoNewPrivileges=yes
-CapabilityBoundingSet=
-AmbientCapabilities=
-
-# --- System call restrictions ---
-# CUDA/ROCm needs @ipc (shared memory) and @resources (setrlimit, mbind)
-SystemCallFilter=@system-service @ipc @resources
-SystemCallFilter=~@privileged @mount
-SystemCallArchitectures=native
-
-# --- Namespace and address restrictions ---
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-RestrictNamespaces=yes
-RestrictRealtime=yes
-RestrictSUIDSGID=yes
-
-# --- Device access ---
-# GPU inference needs device access
-PrivateDevices=no
-
-# --- Memory ---
-# CUDA JIT requires write+execute
-MemoryDenyWriteExecute=no
-LockPersonality=yes
-UMask=0077
-
 # --- Network isolation ---
-# Only allow localhost and LAN — blocks outbound internet (prompt injection defense)
-IPAddressAllow=127.0.0.0/8 ::1/128 192.168.42.0/24
-IPAddressDeny=any
+# Docker handles network; systemd IPAddressDeny doesn't work with --network=host containers
+# The container inherits host networking but vLLM only binds to specified port
 
 [Install]
 WantedBy=multi-user.target

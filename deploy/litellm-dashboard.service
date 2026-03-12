@@ -31,7 +31,10 @@ ProtectHome=tmpfs
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/src
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/models.yaml
-BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+# uv-managed Python
+BindReadOnlyPaths=-/home/erewhon/.local/share/uv/python
+# Linuxbrew Python (euclid fallback)
+BindReadOnlyPaths=-/home/linuxbrew
 
 ProtectKernelTunables=yes
 ProtectKernelModules=yes

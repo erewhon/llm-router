@@ -38,12 +38,8 @@ sync_node() {
 
 rebuild_venv() {
     local host=$1
-    info "Rebuilding venv on $host..."
-    # Detect Python — linuxbrew on NVIDIA/euclid nodes, system python on delphi
-    ssh "$host" "cd $PROJ && \
-        PYTHON=\$(command -v /home/linuxbrew/.linuxbrew/bin/python3 || command -v python3) && \
-        \$PYTHON -m venv .venv --clear && \
-        .venv/bin/pip install -q -e '.[all]' 2>&1 | tail -1"
+    info "Syncing venv on $host..."
+    ssh "$host" "cd $PROJ && /home/linuxbrew/.linuxbrew/bin/uv sync --all-extras -q"
 }
 
 restart_agent() {
@@ -84,19 +80,27 @@ deploy_agents() {
     fi
 }
 
+install_services() {
+    local host=$1
+    info "Installing service files on $host..."
+    ssh "$host" "sudo cp $PROJ/deploy/litellm-proxy.service /etc/systemd/system/ && \
+        sudo cp $PROJ/deploy/litellm-dashboard.service /etc/systemd/system/ && \
+        sudo systemctl daemon-reload"
+}
+
 deploy_dashboard() {
     sync_node "$DASHBOARD_HOST"
     rebuild_venv "$DASHBOARD_HOST"
+    install_services "$DASHBOARD_HOST"
 
-    info "Restarting dashboard on $DASHBOARD_HOST..."
-    ssh "$DASHBOARD_HOST" "sudo systemctl restart litellm-dashboard"
-    local status
-    status=$(ssh "$DASHBOARD_HOST" "systemctl is-active litellm-dashboard")
-    if [[ "$status" == "active" ]]; then
-        ok "Dashboard on $DASHBOARD_HOST: active"
-    else
-        err "Dashboard on $DASHBOARD_HOST: $status"
-    fi
+    info "Restarting dashboard + proxy on $DASHBOARD_HOST..."
+    ssh "$DASHBOARD_HOST" "sudo systemctl restart litellm-dashboard litellm-proxy"
+
+    local dash_status proxy_status
+    dash_status=$(ssh "$DASHBOARD_HOST" "systemctl is-active litellm-dashboard")
+    proxy_status=$(ssh "$DASHBOARD_HOST" "systemctl is-active litellm-proxy")
+    [[ "$dash_status" == "active" ]] && ok "Dashboard on $DASHBOARD_HOST: active" || err "Dashboard on $DASHBOARD_HOST: $dash_status"
+    [[ "$proxy_status" == "active" ]] && ok "Proxy on $DASHBOARD_HOST: active" || err "Proxy on $DASHBOARD_HOST: $proxy_status"
     echo ""
 }
 

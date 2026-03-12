@@ -43,10 +43,8 @@ ProtectHome=tmpfs
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/src
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/models.yaml
-# uv Python on delphi — optional, '-' skips if absent on linuxbrew nodes
-BindReadOnlyPaths=-/home/erewhon/.local/share/uv/python
-# Linuxbrew Python on NVIDIA nodes (archimedes, hypatia) — optional, '-' skips if absent
-BindReadOnlyPaths=-/home/linuxbrew
+# uv-managed Python (all AI nodes have uv installed)
+BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
 
 # Private /tmp and /var/tmp
 PrivateTmp=yes

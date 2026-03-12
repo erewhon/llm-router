@@ -38,7 +38,10 @@ PrivateTmp=yes
 ProtectHome=tmpfs
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
 BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/deploy/litellm/config.yaml
-BindReadOnlyPaths=/home/erewhon/.local/share/uv/python
+# uv-managed Python
+BindReadOnlyPaths=-/home/erewhon/.local/share/uv/python
+# Linuxbrew Python (fallback)
+BindReadOnlyPaths=-/home/linuxbrew
 
 # No kernel tunables, module loading, or hardware access
 ProtectKernelTunables=yes

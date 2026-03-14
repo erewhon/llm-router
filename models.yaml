@@ -165,8 +165,10 @@ models:
       - coder
       - thinker
       - researcher
+      - vision
     capabilities:
       - text
+      - vision
       - tool_calling
     vllm_args:
       tool_call_parser: qwen3_xml

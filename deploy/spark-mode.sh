@@ -207,11 +207,11 @@ start_big() {
         --host 0.0.0.0 --port $port \
         --tensor-parallel-size $TP_SIZE \
         --distributed-executor-backend ray \
-        --served-model-name $model coder thinker researcher \
+        --served-model-name $model coder thinker researcher vision \
         --enable-auto-tool-choice --tool-call-parser qwen3_xml \
-        --gpu-memory-utilization 0.92 --enforce-eager \
+        --gpu-memory-utilization 0.90 --enforce-eager \
         --kv-cache-dtype fp8 \
-        --max-model-len 32768 \
+        --max-model-len 262144 \
         2>&1 | tee /tmp/vllm-serve.log'"
 
     echo ""

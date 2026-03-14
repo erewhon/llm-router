@@ -408,6 +408,15 @@ DASHBOARD_HTML = """\
     color: var(--text-dim);
   }
 
+  .copy-btn {
+    background: none; border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text-dim); cursor: pointer; padding: 2px 6px;
+    font-size: 0.65rem; margin-left: 0.4rem; vertical-align: middle;
+    transition: all 0.2s;
+  }
+  .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .copy-btn.copied { border-color: var(--green); color: var(--green); }
+
   .loading { color: var(--text-dim); padding: 2rem; text-align: center; }
   .error { color: var(--red); padding: 1rem; }
 
@@ -499,6 +508,14 @@ function sparklineSvg(vals, color) {
     ` stroke-linejoin="round"/></svg>`;
 }
 
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    btn.textContent = 'copied';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'copy'; btn.classList.remove('copied'); }, 1500);
+  });
+}
+
 function vramBarColor(pct) {
   if (pct >= 90) return 'red';
   if (pct >= 70) return 'yellow';
@@ -537,14 +554,17 @@ function render(data) {
         <div class="node-name">Quick Start</div>
         <div class="node-detail" style="margin-top:0.5rem">
           <strong>Host:</strong> <span class="api-base">${tsUrl}</span>
+          <button class="copy-btn" onclick="copyText('${tsUrl}', this)">copy</button>
           <span style="color:var(--text-dim); font-size:0.75rem">(preferred)</span>
         </div>
         <div class="node-detail">
           <strong>Direct:</strong> <span class="api-base">${litellm_url}</span>
+          <button class="copy-btn" onclick="copyText('${litellm_url}', this)">copy</button>
           <span style="color:var(--text-dim); font-size:0.75rem">(from delphi only)</span>
         </div>
         <div class="node-detail" style="margin-top:0.5rem">
           <strong>API Key:</strong> <span class="api-base">sk-litellm-master</span>
+          <button class="copy-btn" onclick="copyText('sk-litellm-master', this)">copy</button>
         </div>
         <div class="node-detail" style="margin-top:0.5rem">
           <strong>Model:</strong> <span>use the model ID or any alias from the table below</span>

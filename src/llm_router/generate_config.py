@@ -72,6 +72,7 @@ def generate_litellm_config(registry: ModelRegistry) -> dict:
         "litellm_settings": {
             "drop_params": True,
             "request_timeout": 600,
+            "disable_spend_logs": True,
         },
         "general_settings": {
             "background_health_checks": True,

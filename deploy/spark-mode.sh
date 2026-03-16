@@ -26,7 +26,7 @@ HYPATIA_IP="${HYPATIA_IP:-192.168.100.11}"
 ETH_IF="${ETH_IF:-enp1s0f0np0}"
 
 BIG_MODEL="${BIG_MODEL:-Qwen/Qwen3.5-122B-A10B-FP8}"
-BIG_IMAGE="${BIG_IMAGE:-vllm/vllm-openai:cu130-nightly}"
+BIG_IMAGE="${BIG_IMAGE:-vllm/vllm-openai:cu130-nightly-old}"
 BIG_PORT="${BIG_PORT:-5391}"
 RAY_PORT="${RAY_PORT:-6379}"
 TP_SIZE="${TP_SIZE:-2}"
@@ -209,6 +209,7 @@ start_big() {
         --distributed-executor-backend ray \
         --served-model-name $model coder thinker vision \
         --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+        --reasoning-parser qwen3 \
         --gpu-memory-utilization 0.90 --enforce-eager \
         --kv-cache-dtype fp8 \
         --max-model-len 262144 \

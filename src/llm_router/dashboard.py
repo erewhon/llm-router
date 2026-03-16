@@ -50,7 +50,7 @@ async def _fetch_node_metrics(
     }
     try:
         base = f"http://{host}:{agent_port}"
-        async with httpx.AsyncClient(timeout=3) as client:
+        async with httpx.AsyncClient(timeout=5) as client:
             health_resp, models_resp = await asyncio.gather(
                 client.get(f"{base}/health"),
                 client.get(f"{base}/models"),
@@ -402,6 +402,13 @@ DASHBOARD_HTML = """\
 
   tr.disabled td { opacity: 0.45; }
 
+  .toggle-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    margin-bottom: 0.75rem; font-size: 0.8rem; color: var(--text-dim);
+  }
+  .toggle-row label { cursor: pointer; user-select: none; }
+  .toggle-row input[type="checkbox"] { cursor: pointer; }
+
   .api-base {
     font-family: 'SF Mono', 'Fira Code', monospace;
     font-size: 0.7rem;
@@ -527,6 +534,14 @@ function sparklineSvg(vals, color) {
     `<polyline points="${coords}" fill="none" stroke="${color}"` +
     ` stroke-width="1.5" stroke-linecap="round"` +
     ` stroke-linejoin="round"/></svg>`;
+}
+
+let showDisabled = false;
+function toggleDisabled(checked) {
+  showDisabled = checked;
+  document.querySelectorAll('tr.disabled').forEach(tr => {
+    tr.style.display = checked ? '' : 'none';
+  });
 }
 
 function copyText(text, btn) {
@@ -732,7 +747,14 @@ function render(data) {
   html += `</div>`;
 
   // Models table
+  const disabledCount = models.filter(m => m.enabled === false).length;
   html += `<div class="section-title">Models</div>`;
+  if (disabledCount > 0) {
+    html += `<div class="toggle-row">
+      <input type="checkbox" id="show-disabled" ${showDisabled ? 'checked' : ''} onchange="toggleDisabled(this.checked)">
+      <label for="show-disabled">Show disabled models (${disabledCount})</label>
+    </div>`;
+  }
   html += `<table><thead><tr>
     <th>Model</th><th>Backend</th><th>Node(s)</th>
     <th>VRAM</th><th>Aliases</th><th>Capabilities</th>
@@ -777,7 +799,8 @@ function render(data) {
         `litellm: ${hLabel}</div>`;
     }
 
-    const rowClass = m.enabled === false ? ' class="disabled"' : '';
+    const hideDisabled = m.enabled === false && !showDisabled;
+    const rowClass = m.enabled === false ? ` class="disabled"${hideDisabled ? ' style="display:none"' : ''}` : '';
     html += `<tr${rowClass}>
       <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo}</div>
         ${m.gguf_file ? `<div class="model-repo">${m.gguf_file}</div>` : ''}</td>
@@ -787,7 +810,7 @@ function render(data) {
       <td>${aliases || '<span style="color:var(--text-dim)">—</span>'}</td>
       <td>${caps}</td>
       <td>${flags}</td>
-      <td><span class="health-dot ${statusClass}"></span>${statusLabel}${healthExtra}</td>
+      <td><span style="white-space:nowrap"><span class="health-dot ${statusClass}"></span>${statusLabel}</span>${healthExtra}</td>
       <td><span class="api-base">${m.api_base}</span></td>
     </tr>`;
   }

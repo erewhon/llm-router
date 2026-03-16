@@ -195,8 +195,18 @@ class VllmBackend(Backend):
                 state = ModelState.STARTING
                 self._states[model_id] = state
 
-        pid = await self._get_main_pid(unit_id) if state == ModelState.RUNNING else None
         port = self._ports.get(model_id, VLLM_PORT)
+
+        # For models not managed by systemd (e.g. multi-node Docker),
+        # fall back to API health check
+        if state in (ModelState.STOPPED, ModelState.ERROR):
+            if await self.health_check(model_id):
+                state = ModelState.RUNNING
+                self._states[model_id] = state
+                self._errors.pop(model_id, None)
+                logger.info(f"Discovered running vLLM on port {port} for {model_id}")
+
+        pid = await self._get_main_pid(unit_id) if state == ModelState.RUNNING else None
 
         return ProcessStatus(
             model_id=model_id,

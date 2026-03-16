@@ -1,0 +1,31 @@
+# systemd unit for llm-router tool proxy (delphi)
+# Install: sudo cp tool-proxy.service /etc/systemd/system/llm-router-tool-proxy.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now llm-router-tool-proxy
+#
+# Routes outbound web requests through SOCKS5 VPN proxy
+
+[Unit]
+Description=LLM Router Tool Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+
+ExecStart=/home/erewhon/Projects/erewhon/llm-router/.venv/bin/python -m llm_router.tool_proxy.service \
+    --port 5392 \
+    --vllm-url http://localhost:1234 \
+    --proxy socks5://192.168.42.84:1080
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+Environment=PATH=/home/erewhon/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=multi-user.target

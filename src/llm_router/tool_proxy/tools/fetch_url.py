@@ -28,61 +28,68 @@ DESCRIPTION = (
 )
 
 
-def fetch_url(url: str) -> str:
-    """Fetch a URL and extract readable text content."""
-    import requests as req_lib
+def create_fetch_url(proxy: str | None = None):
+    """Create a fetch_url function with optional proxy."""
+    proxies = {"http": proxy, "https": proxy} if proxy else None
 
-    try:
-        resp = req_lib.get(
-            url,
-            timeout=15,
-            headers={"User-Agent": "Mozilla/5.0 (compatible; LLMAgent/1.0)"},
-        )
-        resp.raise_for_status()
+    def fetch_url(url: str) -> str:
+        """Fetch a URL and extract readable text content."""
+        import requests as req_lib
 
-        content_type = resp.headers.get("Content-Type", "")
-        if "text" not in content_type and "json" not in content_type and "xml" not in content_type:
-            return f"Non-text content type: {content_type}"
-
-        html = resp.text
-
-        # Use trafilatura for clean text extraction
         try:
-            import trafilatura
-
-            text = trafilatura.extract(
-                html,
-                include_links=True,
-                include_tables=True,
-                favor_recall=True,
+            resp = req_lib.get(
+                url,
+                timeout=15,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; LLMAgent/1.0)"},
+                proxies=proxies,
             )
-            if text:
-                if len(text) > MAX_FETCH_CHARS:
-                    text = (
-                        text[:MAX_FETCH_CHARS]
-                        + f"\n\n[Truncated — showing first {MAX_FETCH_CHARS} "
-                        f"of {len(text)} characters]"
-                    )
-                return text
-        except ImportError:
-            pass
+            resp.raise_for_status()
 
-        # Fallback: strip HTML tags
-        text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL)
-        text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
-        text = re.sub(r"<[^>]+>", " ", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        if not text:
-            return f"Could not extract text content from: {url}"
-        if len(text) > MAX_FETCH_CHARS:
-            text = text[:MAX_FETCH_CHARS] + "\n\n[Truncated]"
-        return text
+            content_type = resp.headers.get("Content-Type", "")
+            if "text" not in content_type and "json" not in content_type and "xml" not in content_type:
+                return f"Non-text content type: {content_type}"
 
-    except Exception as e:
-        logger.error(f"URL fetch failed: {e}")
-        return f"Fetch failed: {e}"
+            html = resp.text
+
+            # Use trafilatura for clean text extraction
+            try:
+                import trafilatura
+
+                text = trafilatura.extract(
+                    html,
+                    include_links=True,
+                    include_tables=True,
+                    favor_recall=True,
+                )
+                if text:
+                    if len(text) > MAX_FETCH_CHARS:
+                        text = (
+                            text[:MAX_FETCH_CHARS]
+                            + f"\n\n[Truncated — showing first {MAX_FETCH_CHARS} "
+                            f"of {len(text)} characters]"
+                        )
+                    return text
+            except ImportError:
+                pass
+
+            # Fallback: strip HTML tags
+            text = re.sub(r"<script[^>]*>.*?</script>", "", html, flags=re.DOTALL)
+            text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = re.sub(r"\s+", " ", text).strip()
+            if not text:
+                return f"Could not extract text content from: {url}"
+            if len(text) > MAX_FETCH_CHARS:
+                text = text[:MAX_FETCH_CHARS] + "\n\n[Truncated]"
+            return text
+
+        except Exception as e:
+            logger.error(f"URL fetch failed: {e}")
+            return f"Fetch failed: {e}"
+
+    return fetch_url
 
 
-def register(registry: ToolRegistry) -> None:
+def register(registry: ToolRegistry, proxy: str | None = None) -> None:
     """Register the fetch_url tool."""
-    registry.register("fetch_url", DESCRIPTION, DEFINITION, fetch_url)
+    registry.register("fetch_url", DESCRIPTION, DEFINITION, create_fetch_url(proxy))

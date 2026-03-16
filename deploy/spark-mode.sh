@@ -201,13 +201,13 @@ start_big() {
         return 1
     fi
 
-    # Launch vLLM serve with aliases so LiteLLM can route coder/thinker/researcher
+    # Launch vLLM serve with aliases so LiteLLM can route coder/thinker/vision
     info "Starting vLLM serve..."
     ssh_cmd "$ARCHIMEDES" "docker exec -d $MULTINODE_CONTAINER bash -c 'vllm serve $model \
         --host 0.0.0.0 --port $port \
         --tensor-parallel-size $TP_SIZE \
         --distributed-executor-backend ray \
-        --served-model-name $model coder thinker researcher vision \
+        --served-model-name $model coder thinker vision \
         --enable-auto-tool-choice --tool-call-parser qwen3_xml \
         --gpu-memory-utilization 0.90 --enforce-eager \
         --kv-cache-dtype fp8 \
@@ -216,7 +216,7 @@ start_big() {
 
     echo ""
     ok "vLLM starting on $ARCHIMEDES:$port"
-    echo -e "  ${CYAN}Aliases:${RESET} coder, thinker, researcher"
+    echo -e "  ${CYAN}Aliases:${RESET} coder, thinker, vision"
     echo -e "  ${CYAN}Monitor:${RESET} ssh $ARCHIMEDES docker exec $MULTINODE_CONTAINER tail -f /tmp/vllm-serve.log"
     echo -e "  ${CYAN}Test:${RESET}    curl http://$ARCHIMEDES:$port/v1/models"
     echo -e "  ${CYAN}Stop:${RESET}    $0 off"

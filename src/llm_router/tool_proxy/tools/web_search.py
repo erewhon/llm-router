@@ -25,26 +25,31 @@ DESCRIPTION = (
 )
 
 
-def web_search(query: str) -> str:
-    """Search the web using DuckDuckGo."""
-    try:
-        from ddgs import DDGS
+def create_web_search(proxy: str | None = None):
+    """Create a web_search function with optional proxy."""
 
-        results = DDGS().text(query, max_results=5)
-        if not results:
-            return "No results found."
-        lines = []
-        for r in results:
-            title = r.get("title", "")
-            body = r.get("body", "")
-            href = r.get("href", "")
-            lines.append(f"- {title}\n  {body}\n  {href}")
-        return "\n\n".join(lines)
-    except Exception as e:
-        logger.error(f"Web search failed: {e}")
-        return f"Search failed: {e}"
+    def web_search(query: str) -> str:
+        """Search the web using DuckDuckGo."""
+        try:
+            from duckduckgo_search import DDGS
+
+            results = list(DDGS(proxy=proxy).text(query, max_results=5))
+            if not results:
+                return "No results found."
+            lines = []
+            for r in results:
+                title = r.get("title", "")
+                body = r.get("body", "")
+                href = r.get("href", "")
+                lines.append(f"- {title}\n  {body}\n  {href}")
+            return "\n\n".join(lines)
+        except Exception as e:
+            logger.error(f"Web search failed: {e}")
+            return f"Search failed: {e}"
+
+    return web_search
 
 
-def register(registry: ToolRegistry) -> None:
+def register(registry: ToolRegistry, proxy: str | None = None) -> None:
     """Register the web_search tool."""
-    registry.register("web_search", DESCRIPTION, DEFINITION, web_search)
+    registry.register("web_search", DESCRIPTION, DEFINITION, create_web_search(proxy))

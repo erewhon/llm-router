@@ -118,10 +118,10 @@ class ModelRegistry(BaseModel):
             host = self.nodes[head].host
         else:
             host = self.get_node(model_id).host
-        if model.api_port:
-            return f"http://{host}:{model.api_port}/v1"
         if model.tool_proxy:
             return f"http://{host}:5392/v1"
+        if model.api_port:
+            return f"http://{host}:{model.api_port}/v1"
         return f"http://{host}:5391/v1"
 
     def models_for_node(

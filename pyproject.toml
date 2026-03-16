@@ -18,7 +18,7 @@ tool-proxy = [
     "duckduckgo-search>=7.0",
     "trafilatura>=2.0",
     "simpleeval>=1.0",
-    "requests>=2.32",
+    "requests[socks]>=2.32",
 ]
 litellm = [
     "litellm[proxy]>=1.50",

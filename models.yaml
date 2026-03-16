@@ -32,11 +32,56 @@ models:
     api_port: 1234
     vram_gb: 50
     always_on: true
+    enabled: false
     tool_proxy: false
     aliases:
       - gpt-oss
     capabilities:
       - text
+      - tool_calling
+
+  qwen3-next-80b-a3b:
+    hf_repo: Qwen/Qwen3-Next-80B-A3B-Instruct
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 66
+    always_on: true
+    enabled: false
+    tool_proxy: true
+    aliases: []
+    capabilities:
+      - text
+      - tool_calling
+
+  qwen3.5-27b-research:
+    hf_repo: qwen3.5-27b
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 29
+    always_on: true
+    tool_proxy: true
+    aliases:
+      - research
+    capabilities:
+      - text
+      - tool_calling
+
+  qwen3.5-35b-a3b-fast:
+    hf_repo: qwen3.5-35b-a3b@q8_0
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 38
+    always_on: true
+    tool_proxy: true
+    aliases:
+      - research-fast
+      - vision-fast
+    capabilities:
+      - text
+      - vision
       - tool_calling
 
   qwen3-vl-8b:
@@ -164,7 +209,6 @@ models:
     aliases:
       - coder
       - thinker
-      - researcher
       - vision
     capabilities:
       - text

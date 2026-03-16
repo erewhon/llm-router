@@ -417,6 +417,7 @@ def _setup_ssl_certs() -> None:
 def create_app(
     vllm_url: str = "http://localhost:5391",
     tavily_key: str | None = None,
+    proxy: str | None = None,
 ) -> FastAPI:
     """Configure and return the FastAPI app."""
     global _vllm_client, _vllm_url, _max_output_tokens, _registry
@@ -431,14 +432,17 @@ def create_app(
         _max_output_tokens = max_len
         logger.info(f"Max output tokens from vLLM: {_max_output_tokens}")
 
+    if proxy:
+        logger.info(f"Outbound proxy: {proxy}")
+
     # Register tools
     _registry = ToolRegistry()
     from llm_router.tool_proxy.tools import calculator, fetch_url, tavily, web_search
 
-    web_search.register(_registry)
-    fetch_url.register(_registry)
+    web_search.register(_registry, proxy=proxy)
+    fetch_url.register(_registry, proxy=proxy)
     calculator.register(_registry)
-    tavily.register(_registry, api_key=tavily_key or os.environ.get("TAVILY_API_KEY"))
+    tavily.register(_registry, api_key=tavily_key or os.environ.get("TAVILY_API_KEY"), proxy=proxy)
 
     logger.info(f"Tools: {', '.join(_registry.names)}")
     return app
@@ -449,14 +453,15 @@ def create_app(
 @click.option("--vllm-url", default="http://localhost:5391", help="vLLM backend URL")
 @click.option("--host", default="0.0.0.0", help="Bind address")
 @click.option("--tavily-key", default=None, help="Tavily API key")
-def cli(port: int, vllm_url: str, host: str, tavily_key: str | None) -> None:
+@click.option("--proxy", default=None, help="SOCKS5/HTTP proxy for outbound tool requests (e.g. socks5://host:1080)")
+def cli(port: int, vllm_url: str, host: str, tavily_key: str | None, proxy: str | None) -> None:
     """Start the tool-calling proxy."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
 
-    create_app(vllm_url=vllm_url, tavily_key=tavily_key)
+    create_app(vllm_url=vllm_url, tavily_key=tavily_key, proxy=proxy)
     logger.info(f"Starting tool proxy on {host}:{port}")
     logger.info(f"vLLM backend: {vllm_url}")
     uvicorn.run(app, host=host, port=port, log_level="info")

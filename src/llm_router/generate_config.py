@@ -73,7 +73,10 @@ def generate_litellm_config(registry: ModelRegistry) -> dict:
             "drop_params": True,
             "request_timeout": 600,
         },
-        "general_settings": {},
+        "general_settings": {
+            "background_health_checks": True,
+            "health_check_interval": 300,  # 5 min — avoids request pile-up during slow model loads
+        },
     }
     return config
 

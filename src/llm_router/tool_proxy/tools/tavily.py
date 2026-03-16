@@ -34,8 +34,9 @@ DESCRIPTION = (
 )
 
 
-def create_tavily_search(api_key: str):
+def create_tavily_search(api_key: str, proxy: str | None = None):
     """Create a tavily_search function bound to the given API key."""
+    proxies = {"http": proxy, "https": proxy} if proxy else None
 
     def tavily_search(query: str, search_depth: str = "basic") -> str:
         """Search the web using Tavily API."""
@@ -52,6 +53,7 @@ def create_tavily_search(api_key: str):
                     "max_results": 5,
                 },
                 timeout=15,
+                proxies=proxies,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -76,8 +78,8 @@ def create_tavily_search(api_key: str):
     return tavily_search
 
 
-def register(registry: ToolRegistry, api_key: str | None = None) -> None:
+def register(registry: ToolRegistry, api_key: str | None = None, proxy: str | None = None) -> None:
     """Register the tavily_search tool (only if API key is available)."""
     if not api_key:
         return
-    registry.register("tavily_search", DESCRIPTION, DEFINITION, create_tavily_search(api_key))
+    registry.register("tavily_search", DESCRIPTION, DEFINITION, create_tavily_search(api_key, proxy=proxy))

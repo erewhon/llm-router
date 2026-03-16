@@ -417,6 +417,27 @@ DASHBOARD_HTML = """\
   .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
   .copy-btn.copied { border-color: var(--green); color: var(--green); }
 
+  .alias-list {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 1rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.75rem 2rem;
+  }
+  .alias-item {
+    display: flex; gap: 0.5rem; align-items: baseline;
+  }
+  .alias-name {
+    font-weight: 600; font-size: 0.85rem;
+    color: var(--accent); white-space: nowrap;
+  }
+  .alias-desc {
+    font-size: 0.8rem; color: var(--text-dim);
+  }
+
   .loading { color: var(--text-dim); padding: 2rem; text-align: center; }
   .error { color: var(--red); padding: 1rem; }
 
@@ -578,6 +599,38 @@ function render(data) {
           &nbsp;&nbsp;-H "Content-Type: application/json" \\<br>
           &nbsp;&nbsp;-d '{"model":"${models[0]?.aliases?.[0] || models[0]?.id || 'MODEL'}","messages":[{"role":"user","content":"Hello"}]}'</span>
         </div>
+      </div>
+    </div>`;
+
+  // Alias descriptions
+  html += `
+    <div class="section-title">Model Aliases</div>
+    <div class="alias-list" style="grid-template-columns: repeat(4, 1fr)">
+      <div class="alias-item">
+        <span class="alias-name">coder</span>
+        <span class="alias-desc">Code generation and debugging</span>
+      </div>
+      <div class="alias-item">
+        <span class="alias-name">thinker</span>
+        <span class="alias-desc">Reasoning and problem solving</span>
+      </div>
+      <div class="alias-item">
+        <span class="alias-name">research</span>
+        <span class="alias-desc">Web search via VPN (27B dense)</span>
+      </div>
+      <div class="alias-item">
+        <span class="alias-name">vision</span>
+        <span class="alias-desc">Image understanding</span>
+      </div>
+      <div class="alias-item" style="opacity: 0"></div>
+      <div class="alias-item" style="opacity: 0"></div>
+      <div class="alias-item">
+        <span class="alias-name">research-fast</span>
+        <span class="alias-desc">Fast web search via VPN (35B MoE)</span>
+      </div>
+      <div class="alias-item">
+        <span class="alias-name">vision-fast</span>
+        <span class="alias-desc">Fast image understanding (35B MoE)</span>
       </div>
     </div>`;
 

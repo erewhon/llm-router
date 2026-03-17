@@ -342,3 +342,127 @@ models:
   #     - tool_calling
   #   vllm_args:
   #     max_model_len: 32768
+
+  # --- External models (OpenCode Zen) ---
+
+  # Free tier
+  nemotron-3-super-free:
+    hf_repo: nemotron-3-super-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+
+  mimo-v2-flash-free:
+    hf_repo: mimo-v2-flash-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+
+  big-pickle:
+    hf_repo: big-pickle
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+
+  minimax-m2.5-free:
+    hf_repo: minimax-m2.5-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+
+  # Paid tier
+  claude-opus-4-6:
+    hf_repo: claude-opus-4-6
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  claude-sonnet-4-6:
+    hf_repo: claude-sonnet-4-6
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  claude-haiku-4-5:
+    hf_repo: claude-haiku-4-5
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  glm-5:
+    hf_repo: glm-5
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  kimi-k2.5:
+    hf_repo: kimi-k2.5
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid

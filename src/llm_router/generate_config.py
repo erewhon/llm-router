@@ -18,12 +18,18 @@ def _litellm_model_entry(
     """Build a single LiteLLM model_list entry."""
     api_base = registry.get_api_base(model_id)
 
+    # Resolve API key: external models use their own key, local models don't need one
+    if model.api_key:
+        api_key = f"os.environ/{model.api_key}" if not model.api_key.startswith("sk-") else model.api_key
+    else:
+        api_key = "not-needed"
+
     entry: dict = {
         "model_name": model_id,
         "litellm_params": {
             "model": f"openai/{model.hf_repo}",
             "api_base": api_base,
-            "api_key": "not-needed",
+            "api_key": api_key,
         },
         "model_info": {
             "id": model_id,

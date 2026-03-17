@@ -806,7 +806,7 @@ function render(data) {
         ${m.gguf_file ? `<div class="model-repo">${m.gguf_file}</div>` : ''}</td>
       <td><span class="badge badge-backend">${m.backend}</span></td>
       <td>${nodeStr}</td>
-      <td>${m.vram_gb} GB</td>
+      <td>${m.vram_gb ? m.vram_gb + ' GB' : '<span style="color:var(--text-dim)">—</span>'}</td>
       <td>${aliases || '<span style="color:var(--text-dim)">—</span>'}</td>
       <td>${caps}</td>
       <td>${flags}</td>

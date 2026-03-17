@@ -14,6 +14,7 @@ class BackendType(StrEnum):
     VLLM = "vllm"
     LLAMACPP = "llamacpp"
     LMSTUDIO = "lmstudio"
+    EXTERNAL = "external"
 
 
 class ModelCapability(StrEnum):
@@ -85,8 +86,16 @@ class ModelDefinition(BaseModel):
     # For external backends (lmstudio, etc.) — custom port
     api_port: int | None = None
 
+    # For external/cloud models — full API base URL (e.g. https://opencode.ai/zen/v1)
+    api_base: str | None = None
+    api_key: str | None = None  # env var name or literal key
+
     @model_validator(mode="after")
     def validate_node_or_multi(self) -> "ModelDefinition":
+        if self.backend == BackendType.EXTERNAL:
+            if not self.api_base:
+                raise ValueError("External models must specify 'api_base'")
+            return self
         if not self.node and not self.multi_node:
             raise ValueError("Model must specify either 'node' or 'multi_node'")
         if self.node and self.multi_node:
@@ -111,8 +120,11 @@ class ModelRegistry(BaseModel):
         """Get the API base URL for a model's inference backend.
 
         For multi-node models, uses the head node.
+        For external models, returns the configured api_base.
         """
         model = self.models[model_id]
+        if model.api_base:
+            return model.api_base
         if model.multi_node:
             head = model.multi_node.head_node or model.multi_node.nodes[0]
             host = self.nodes[head].host

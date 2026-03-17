@@ -22,6 +22,7 @@ StandardError=journal
 
 Environment=LITELLM_MASTER_KEY=sk-litellm-master
 Environment=LITELLM_LOG_LEVEL=INFO
+EnvironmentFile=-/etc/llm-router/proxy.env
 
 # --- Sandboxing ---
 

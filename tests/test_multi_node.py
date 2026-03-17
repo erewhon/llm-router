@@ -51,8 +51,8 @@ def test_multi_node_model_routing():
     """Multi-node model should route through head node (first in list)."""
     reg = load_registry_from_dict(MULTI_NODE_REGISTRY)
     base = reg.get_api_base("llama4-scout")
-    # tool_proxy=True → port 5392, head node is archimedes
-    assert base == "http://archimedes:5392/v1"
+    # tool_proxy=True → port 5392, routed through delphi (tool proxy host)
+    assert base == "http://delphi:5392/v1"
 
 
 def test_multi_node_model_assigned_to_both_nodes():

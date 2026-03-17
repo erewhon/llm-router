@@ -205,7 +205,7 @@ models:
     api_port: 5391
     vram_gb: 235
     always_on: true
-    tool_proxy: false
+    tool_proxy: true
     aliases:
       - coder
       - thinker

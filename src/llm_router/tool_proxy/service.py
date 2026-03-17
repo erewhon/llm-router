@@ -50,9 +50,32 @@ _vllm_url: str = "http://localhost:5391"
 _max_output_tokens: int = 32768
 _max_tool_rounds: int = 5
 _registry: ToolRegistry = ToolRegistry()
+_backend_clients: dict[str, AsyncOpenAI] = {}  # model_name -> client
+_model_registry = None  # ModelRegistry for backend resolution
 
 
-def _get_client() -> AsyncOpenAI:
+def _get_client(model: str = "auto") -> AsyncOpenAI:
+    """Get the OpenAI client for a model, resolving backend URL from registry."""
+    if _model_registry is not None and model != "auto":
+        # Check if this model, alias, or hf_repo maps to a different backend
+        # LiteLLM may send "openai/Repo/Name" — strip the prefix
+        model_clean = model.removeprefix("openai/")
+        for model_id, mdef in _model_registry.models.items():
+            if model_id == model_clean or model_clean in mdef.aliases or mdef.hf_repo == model_clean:
+                # Resolve the actual backend URL (not tool proxy port)
+                if mdef.multi_node:
+                    head = mdef.multi_node.head_node or mdef.multi_node.nodes[0]
+                    host = _model_registry.nodes[head].host
+                else:
+                    host = _model_registry.nodes[mdef.node].host
+                port = mdef.api_port or 5391
+                backend_url = f"http://{host}:{port}"
+                if backend_url not in _backend_clients:
+                    _backend_clients[backend_url] = AsyncOpenAI(
+                        base_url=f"{backend_url}/v1", api_key="dummy"
+                    )
+                    logger.info(f"Created backend client for {model} -> {backend_url}")
+                return _backend_clients[backend_url]
     assert _vllm_client is not None, "vLLM client not configured"
     return _vllm_client
 
@@ -118,7 +141,7 @@ async def _non_streaming_chat_completion(
     tool_choice: str | dict,
 ) -> JSONResponse:
     """Non-streaming tool loop — executes proxy tools, returns client tool calls."""
-    client = _get_client()
+    client = _get_client(model)
 
     for round_num in range(_max_tool_rounds):
         try:
@@ -142,12 +165,16 @@ async def _non_streaming_chat_completion(
         choice = response.choices[0]
         msg = choice.message
         content = msg.content or ""
+        # vLLM with --reasoning-parser puts thinking in msg.reasoning
+        backend_reasoning = getattr(msg, "reasoning", None) or getattr(msg, "reasoning_content", None)
 
         tool_calls = extract_tool_calls(msg, content)
         content = strip_tool_call_tags(content)
 
         if not tool_calls:
             reasoning, clean_content = extract_thinking(content)
+            # Prefer backend-provided reasoning over tag-extracted
+            reasoning = backend_reasoning or reasoning
             return build_response(model, clean_content, response.usage, reasoning or None)
 
         # Split into proxy-owned vs client-owned
@@ -205,7 +232,7 @@ async def _stream_chat_completion(
     tool_choice: str | dict,
 ):
     """Streaming generator: tool loop non-streaming, then stream the final answer."""
-    client = _get_client()
+    client = _get_client(model)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
     # --- Tool loop (non-streaming) ---
@@ -325,6 +352,11 @@ async def _stream_chat_completion(
         delta = chunk.choices[0].delta
         finish_reason = chunk.choices[0].finish_reason
 
+        # vLLM with --reasoning-parser sends thinking as delta.reasoning
+        delta_reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+        if delta_reasoning:
+            yield build_sse_chunk(chunk_id, model, reasoning_content=delta_reasoning)
+
         delta_content = delta.content or ""
 
         if delta_content:
@@ -420,11 +452,19 @@ def create_app(
     proxy: str | None = None,
 ) -> FastAPI:
     """Configure and return the FastAPI app."""
-    global _vllm_client, _vllm_url, _max_output_tokens, _registry
+    global _vllm_client, _vllm_url, _max_output_tokens, _registry, _model_registry
 
     _setup_ssl_certs()
     _vllm_url = vllm_url
     _vllm_client = AsyncOpenAI(base_url=f"{vllm_url}/v1", api_key="dummy")
+
+    # Load model registry for multi-backend routing
+    try:
+        from llm_router.config import load_registry
+        _model_registry = load_registry()
+        logger.info(f"Loaded model registry ({len(_model_registry.models)} models)")
+    except Exception as e:
+        logger.warning(f"Could not load model registry: {e} — using default backend only")
 
     # Try to get actual max from vLLM
     max_len = _fetch_max_model_len(vllm_url)

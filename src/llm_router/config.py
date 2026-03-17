@@ -119,7 +119,9 @@ class ModelRegistry(BaseModel):
         else:
             host = self.get_node(model_id).host
         if model.tool_proxy:
-            return f"http://{host}:5392/v1"
+            # Tool proxy runs on delphi — route all tool_proxy models there
+            tp_host = self.nodes["delphi"].host if "delphi" in self.nodes else host
+            return f"http://{tp_host}:5392/v1"
         if model.api_port:
             return f"http://{host}:{model.api_port}/v1"
         return f"http://{host}:5391/v1"

@@ -1,0 +1,28 @@
+# systemd unit for whisper.cpp STT server (delphi)
+# Install: sudo cp whisper-server.service /etc/systemd/system/llm-router-whisper.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now llm-router-whisper
+
+[Unit]
+Description=Whisper STT Server (whisper.cpp + Vulkan)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+
+ExecStart=/usr/local/bin/whisper-server \
+    --model /data/ai/whisper/ggml-large-v3-turbo.bin \
+    --host 0.0.0.0 --port 5394 \
+    --convert --tmp-dir /tmp \
+    --language auto
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

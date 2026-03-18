@@ -1,0 +1,28 @@
+# systemd unit for Kokoro TTS server (delphi)
+# Install: sudo cp kokoro-tts.service /etc/systemd/system/llm-router-kokoro.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now llm-router-kokoro
+
+[Unit]
+Description=Kokoro TTS Server (CPU/ONNX)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+
+ExecStartPre=-/usr/bin/docker rm -f kokoro-tts
+ExecStart=/usr/bin/docker run --rm --name kokoro-tts \
+    -p 5395:8880 \
+    ghcr.io/remsky/kokoro-fastapi-cpu:latest
+
+ExecStop=/usr/bin/docker stop kokoro-tts
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

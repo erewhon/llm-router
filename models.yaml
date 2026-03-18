@@ -343,6 +343,48 @@ models:
   #   vllm_args:
   #     max_model_len: 32768
 
+  # --- Utility models (delphi) ---
+
+  nomic-embed:
+    hf_repo: text-embedding-nomic-embed-text-v1.5
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 0
+    always_on: true
+    aliases:
+      - embedding
+    capabilities:
+      - text
+    tags:
+      - embedding
+
+  whisper-large-v3-turbo:
+    hf_repo: whisper-large-v3-turbo
+    backend: external
+    api_base: http://delphi.local:5394
+    always_on: true
+    aliases:
+      - stt
+      - transcribe
+    capabilities:
+      - audio
+    tags:
+      - stt
+
+  kokoro-tts:
+    hf_repo: kokoro-82m
+    backend: external
+    api_base: http://delphi.local:5395
+    always_on: true
+    aliases:
+      - tts
+      - speak
+    capabilities:
+      - audio
+    tags:
+      - tts
+
   # --- External models (OpenCode Zen) ---
 
   # Free tier

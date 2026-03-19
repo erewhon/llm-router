@@ -9,7 +9,11 @@ Or:   uv run python -m llm_router.tui
 
 from __future__ import annotations
 
+import select
+import sys
+import termios
 import time
+import tty
 
 import click
 import httpx
@@ -20,6 +24,13 @@ from rich.table import Table
 from rich.text import Text
 from rich.columns import Columns
 from rich.style import Style
+
+
+def _key_pressed() -> str | None:
+    """Non-blocking check for a keypress. Returns the key or None."""
+    if select.select([sys.stdin], [], [], 0)[0]:
+        return sys.stdin.read(1)
+    return None
 
 
 def _bar(pct: float, width: int = 20) -> Text:
@@ -232,6 +243,22 @@ def _build_display(data: dict, metrics: dict | None, show_disabled: bool) -> Tab
     return layout
 
 
+def _render_frame(data: dict, metrics: dict | None, show_disabled: bool, interval: int) -> Table:
+    """Render a single frame of the TUI."""
+    title = Text()
+    title.append(" LLM Router ", style="bold white on blue")
+    title.append(f"  {time.strftime('%H:%M:%S')}  ", style="dim")
+    title.append(f"refresh: {interval}s  ", style="dim")
+    title.append("q", style="bold")
+    title.append(" quit", style="dim")
+
+    display = Table.grid(expand=True)
+    display.add_row(title)
+    display.add_row(Text())
+    display.add_row(_build_display(data, metrics, show_disabled))
+    return display
+
+
 @click.command()
 @click.option("--url", default="http://localhost:4011", help="Dashboard API URL")
 @click.option("--interval", "-n", default=2, type=int, help="Refresh interval in seconds")
@@ -247,36 +274,39 @@ def cli(url: str, interval: int, show_disabled: bool) -> None:
         console.print("Make sure the dashboard is running and accessible.")
         raise SystemExit(1)
 
-    console.print(f"[dim]Connected to {url} · refreshing every {interval}s · Ctrl+C to exit[/dim]\n")
+    # Set terminal to raw mode for key detection
+    old_settings = termios.tcgetattr(sys.stdin)
 
-    tick = 0
-    with Live(console=console, refresh_per_second=1, screen=True) as live:
-        while True:
-            try:
-                # Full refresh every 30s, metrics-only otherwise
-                if tick % 15 == 0:
-                    fresh = _fetch_data(url)
-                    if fresh:
-                        data = fresh
+    try:
+        tty.setcbreak(sys.stdin.fileno())
 
-                metrics = _fetch_metrics(url)
+        tick = 0
+        with Live(console=console, refresh_per_second=1, screen=True) as live:
+            # Render immediately with initial data
+            live.update(_render_frame(data, None, show_disabled, interval))
 
-                title = Text()
-                title.append(" LLM Router ", style="bold white on blue")
-                title.append(f"  {time.strftime('%H:%M:%S')}  ", style="dim")
-                title.append(f"refresh: {interval}s", style="dim")
+            while True:
+                try:
+                    # Check for keypress
+                    key = _key_pressed()
+                    if key and key.lower() == "q":
+                        break
 
-                display = Table.grid(expand=True)
-                display.add_row(title)
-                display.add_row(Text())
-                display.add_row(_build_display(data, metrics, show_disabled))
+                    # Full refresh every 30s, metrics-only otherwise
+                    if tick % max(1, 30 // interval) == 0:
+                        fresh = _fetch_data(url)
+                        if fresh:
+                            data = fresh
 
-                live.update(display)
-                time.sleep(interval)
-                tick += 1
+                    metrics = _fetch_metrics(url)
+                    live.update(_render_frame(data, metrics, show_disabled, interval))
+                    time.sleep(interval)
+                    tick += 1
 
-            except KeyboardInterrupt:
-                break
+                except KeyboardInterrupt:
+                    break
+    finally:
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
 
 
 if __name__ == "__main__":

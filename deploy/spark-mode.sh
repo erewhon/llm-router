@@ -167,6 +167,8 @@ start_big() {
     docker_common+=" -e NCCL_IGNORE_CPU_AFFINITY=1 -e NCCL_DEBUG=WARN -e HF_HUB_OFFLINE=1"
     # Disable Ray memory monitor — unified memory GPUs confuse it (CUDA allocs look like RAM usage)
     docker_common+=" -e RAY_memory_monitor_refresh_ms=0"
+    # Increase Ray compiled DAG timeout — 300s default is too short for long-context 122B generation
+    docker_common+=" -e RAY_CGRAPH_get_timeout=3600"
     docker_common+=" -v $HF_CACHE:/root/.cache/huggingface/hub:ro"
 
     # Start Ray head on archimedes

@@ -637,7 +637,10 @@ function render(data) {
         <span class="alias-name">vision</span>
         <span class="alias-desc">Image understanding</span>
       </div>
-      <div class="alias-item" style="opacity: 0"></div>
+      <div class="alias-item">
+        <span class="alias-name">coder-fast</span>
+        <span class="alias-desc">Fast code gen (30B MoE)</span>
+      </div>
       <div class="alias-item" style="opacity: 0"></div>
       <div class="alias-item">
         <span class="alias-name">research-fast</span>

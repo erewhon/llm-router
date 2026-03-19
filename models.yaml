@@ -343,6 +343,20 @@ models:
   #   vllm_args:
   #     max_model_len: 32768
 
+  qwen3-coder-30b-a3b:
+    hf_repo: qwen3-coder-30b-a3b-instruct@q4_k_m
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 19
+    always_on: true
+    tool_proxy: true
+    aliases:
+      - coder-fast
+    capabilities:
+      - text
+      - tool_calling
+
   # --- Utility models (delphi) ---
 
   nomic-embed:

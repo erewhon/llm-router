@@ -277,11 +277,11 @@ models:
   #     max_model_len: 32768
 
   qwen3-coder-30b-a3b:
-    hf_repo: qwen3-coder-30b-a3b-instruct@q4_k_m
+    hf_repo: qwen3-coder-30b-a3b-instruct@q3_k_l
     backend: lmstudio
     node: delphi
     api_port: 1234
-    vram_gb: 19
+    vram_gb: 15
     always_on: true
     tool_proxy: true
     aliases:

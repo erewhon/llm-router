@@ -60,7 +60,9 @@ regenerate_and_deploy() {
     info "Deploying config to euclid and restarting proxy..."
     scp -q deploy/litellm/config.yaml "erewhon@${EUCLID}:${PROJ}/deploy/litellm/config.yaml"
     ssh "$EUCLID" "sudo systemctl restart litellm-proxy"
-    ok "LiteLLM proxy restarted with $mode mode config"
+    # Restart tool proxy so it picks up the new model registry for backend routing
+    sudo systemctl restart llm-router-tool-proxy 2>/dev/null || true
+    ok "LiteLLM proxy + tool proxy restarted with $mode mode config"
 }
 err()   { echo -e "${RED}==>${RESET} $*" >&2; }
 
@@ -119,9 +121,15 @@ stop_multinode() {
     ssh_cmd "$HYPATIA" "docker stop $MULTINODE_CONTAINER 2>/dev/null" || true
 }
 
+stop_default_containers() {
+    ssh_cmd "$ARCHIMEDES" "docker stop vllm-default 2>/dev/null" || true
+    ssh_cmd "$HYPATIA" "docker stop vllm-default 2>/dev/null" || true
+}
+
 stop_all() {
     local host=$1 name=$2
     stop_multinode
+    stop_default_containers
     stop_vllm_units "$host" "$name"
     stop_lmstudio "$host" "$name"
     stop_nspawn "$host" "$name"
@@ -131,33 +139,48 @@ stop_all() {
 # --- Start functions ---
 
 start_default_archimedes() {
-    info "[archimedes] Starting VPN container..."
-    ssh_cmd "$ARCHIMEDES" "sudo machinectl start svc-sys-llm-vpn 2>/dev/null" || true
-    sleep 2
+    local model="Qwen/Qwen3-Coder-30B-A3B-Instruct"
+    local image="$BIG_IMAGE"
+    local port=5391
 
-    info "[archimedes] Starting LLM nspawn container..."
-    ssh_cmd "$ARCHIMEDES" "sudo machinectl start llm 2>/dev/null" || true
-    sleep 3
+    info "[archimedes] Starting vLLM: $model"
+    ssh_cmd "$ARCHIMEDES" "docker run --gpus all --network host --ipc=host --shm-size=16g \
+        --rm -d --entrypoint bash --name vllm-default \
+        -e HF_HUB_OFFLINE=1 \
+        -v $HF_CACHE:/root/.cache/huggingface/hub:ro \
+        $image -c 'vllm serve $model \
+            --host 0.0.0.0 --port $port \
+            --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+            --reasoning-parser qwen3 \
+            --gpu-memory-utilization 0.90 --enforce-eager \
+            --max-model-len 131072 \
+            2>&1 | tee /tmp/vllm-serve.log'"
 
-    info "[archimedes] Starting LMStudio server..."
-    ssh_cmd "$ARCHIMEDES" "~/.lmstudio/bin/lms server start 2>/dev/null" || true
-
-    info "[archimedes] Loading qwen3-coder-next..."
-    ssh_cmd "$ARCHIMEDES" "~/.lmstudio/bin/lms load qwen/qwen3-coder-next 2>/dev/null" || true
-
-    # The nspawn container's vLLM (qwen3.5-35b-a3b) starts automatically inside the container
-    ok "[archimedes] Default mode started (LMStudio + nspawn vLLM)"
+    ok "[archimedes] Default mode started (Qwen3-Coder-30B-A3B on port $port)"
 }
 
 start_default_hypatia() {
-    info "[hypatia] Starting vLLM units..."
-    ssh_cmd "$HYPATIA" "sudo systemctl start vllm@qwen3-vl-8b 2>/dev/null" || true
-    ssh_cmd "$HYPATIA" "sudo systemctl start vllm@qwen3.5-27b 2>/dev/null" || true
+    local model="Qwen/Qwen3.5-27B"
+    local image="$BIG_IMAGE"
+    local port=5391
+
+    info "[hypatia] Starting vLLM: $model"
+    ssh_cmd "$HYPATIA" "docker run --gpus all --network host --ipc=host --shm-size=16g \
+        --rm -d --entrypoint bash --name vllm-default \
+        -e HF_HUB_OFFLINE=1 \
+        -v $HF_CACHE:/root/.cache/huggingface/hub:ro \
+        $image -c 'vllm serve $model \
+            --host 0.0.0.0 --port $port \
+            --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+            --reasoning-parser qwen3 \
+            --gpu-memory-utilization 0.90 --enforce-eager \
+            --max-model-len 131072 \
+            2>&1 | tee /tmp/vllm-serve.log'"
 
     info "[hypatia] Starting ComfyUI..."
     ssh_cmd "$HYPATIA" "sudo systemctl start comfyui 2>/dev/null" || true
 
-    ok "[hypatia] Default mode started (vLLM x2 + ComfyUI)"
+    ok "[hypatia] Default mode started (Qwen3.5-27B on port $port + ComfyUI)"
 }
 
 start_big() {

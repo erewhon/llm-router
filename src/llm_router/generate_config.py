@@ -56,13 +56,11 @@ def _litellm_model_entry(
     return entry
 
 
-def generate_litellm_config(registry: ModelRegistry) -> dict:
+def generate_litellm_config(registry: ModelRegistry, *, mode: str | None = None) -> dict:
     """Generate the full LiteLLM config dict."""
     model_list: list[dict] = []
 
-    for model_id, model in registry.models.items():
-        if not model.enabled:
-            continue
+    for model_id, model in registry.models_for_mode(mode).items():
         # Primary entry
         entry = _litellm_model_entry(model_id, model, registry)
         model_list.append(entry)
@@ -137,12 +135,18 @@ def generate_node_config(registry: ModelRegistry, node_name: str) -> dict:
     default=False,
     help="Also generate per-node config files in deploy/",
 )
-def main(registry: Path | None, output: Path | None, node_configs: bool) -> None:
+@click.option(
+    "--mode", "-m",
+    type=str,
+    default=None,
+    help="Active mode tag (e.g. 'big', 'default'). Only models with this mode or no mode tag are included.",
+)
+def main(registry: Path | None, output: Path | None, node_configs: bool, mode: str | None) -> None:
     """Generate LiteLLM proxy config from models.yaml."""
     reg = load_registry(registry)
     output = output or DEFAULT_OUTPUT
 
-    litellm_config = generate_litellm_config(reg)
+    litellm_config = generate_litellm_config(reg, mode=mode)
     output.parent.mkdir(parents=True, exist_ok=True)
     with open(output, "w") as f:
         yaml.dump(litellm_config, f, default_flow_style=False, sort_keys=False)

@@ -44,9 +44,24 @@ CYAN='\033[0;36m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
+PROJ="/home/erewhon/Projects/erewhon/llm-router"
+EUCLID="${EUCLID:-euclid.local}"
+UV="/home/linuxbrew/.linuxbrew/bin/uv"
+
 info()  { echo -e "${BLUE}==>${RESET} $*"; }
 ok()    { echo -e "${GREEN}==>${RESET} $*"; }
 warn()  { echo -e "${YELLOW}==>${RESET} $*"; }
+
+regenerate_and_deploy() {
+    local mode=$1
+    info "Regenerating LiteLLM config (mode: $mode)..."
+    cd "$PROJ"
+    $UV run llm-router-generate --mode "$mode"
+    info "Deploying config to euclid and restarting proxy..."
+    scp -q deploy/litellm/config.yaml "erewhon@${EUCLID}:${PROJ}/deploy/litellm/config.yaml"
+    ssh "$EUCLID" "sudo systemctl restart litellm-proxy"
+    ok "LiteLLM proxy restarted with $mode mode config"
+}
 err()   { echo -e "${RED}==>${RESET} $*" >&2; }
 
 ssh_cmd() {
@@ -329,6 +344,8 @@ case "$MODE" in
         echo ""
         start_default_hypatia
         echo ""
+        regenerate_and_deploy "default"
+        echo ""
         show_status
         ;;
     big)
@@ -338,6 +355,8 @@ case "$MODE" in
         stop_all "$HYPATIA" "hypatia"
         echo ""
         start_big
+        echo ""
+        regenerate_and_deploy "big"
         ;;
     *)
         echo "Usage: $0 {status|off|default|big} [--model MODEL] [--image IMAGE] [--port PORT] [--tp N]"

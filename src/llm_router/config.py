@@ -78,6 +78,14 @@ class ModelDefinition(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     capabilities: list[ModelCapability] = Field(default_factory=lambda: [ModelCapability.TEXT])
     tags: list[str] = Field(default_factory=list)
+
+    @property
+    def mode_tag(self) -> str | None:
+        """Return the mode value if a 'mode:xxx' tag is present."""
+        for tag in self.tags:
+            if tag.startswith("mode:"):
+                return tag.split(":", 1)[1]
+        return None
     vllm_args: VllmArgs = Field(default_factory=VllmArgs)
 
     # For llamacpp backend
@@ -152,6 +160,26 @@ class ModelRegistry(BaseModel):
             if (m.node == node_name or (m.multi_node and node_name in m.multi_node.nodes))
             and (not enabled_only or m.enabled)
         }
+
+    def models_for_mode(self, mode: str | None = None) -> dict[str, ModelDefinition]:
+        """Filter models by mode tag.
+
+        - None: all enabled models (no mode filtering, backward compatible)
+        - "big"/"default"/etc: include models with matching mode tag + models with no mode tag
+        - Models with a different mode tag are excluded
+        - enabled=False models are always excluded
+        """
+        result = {}
+        for mid, m in self.models.items():
+            if not m.enabled:
+                continue
+            if mode is None:
+                result[mid] = m
+                continue
+            model_mode = m.mode_tag
+            if model_mode is None or model_mode == mode:
+                result[mid] = m
+        return result
 
 
 def load_registry(path: Path | None = None) -> ModelRegistry:

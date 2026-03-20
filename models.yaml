@@ -86,18 +86,20 @@ models:
 
   # --- Default mode: individual models on each Spark ---
 
-  qwen3-coder-30b-a3b-spark:
-    hf_repo: Qwen/Qwen3-Coder-30B-A3B-Instruct
+  qwen3.5-35b-a3b-spark:
+    hf_repo: Qwen/Qwen3.5-35B-A3B
     backend: vllm
     node: archimedes
     api_port: 5391
-    vram_gb: 60
+    vram_gb: 70
     always_on: true
     tool_proxy: true
     aliases:
       - coder
+      - vision
     capabilities:
       - text
+      - vision
       - tool_calling
     tags:
       - mode:default
@@ -283,11 +285,26 @@ models:
     api_port: 1234
     vram_gb: 15
     always_on: true
+    enabled: false
     tool_proxy: true
-    aliases:
-      - coder-fast
+    aliases: []
     capabilities:
       - text
+      - tool_calling
+
+  qwen3.5-35b-a3b-coder:
+    hf_repo: unsloth--qwen3.5-35b-a3b
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 16
+    always_on: true
+    enabled: false
+    tool_proxy: true
+    aliases: []
+    capabilities:
+      - text
+      - vision
       - tool_calling
 
   # --- Utility models (delphi) ---

@@ -236,7 +236,9 @@ class VllmBackend(Backend):
                 # Verify the served model matches the expected hf_repo
                 data = resp.json()
                 served_ids = {m.get("id", "") for m in data.get("data", [])}
-                return model.hf_repo in served_ids
+                # Strip #suffix (e.g. #nothink) from hf_repo for comparison
+                hf_base = model.hf_repo.split("#")[0]
+                return hf_base in served_ids or model.hf_repo in served_ids
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
             return False
 

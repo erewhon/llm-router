@@ -28,9 +28,9 @@ class Backend(abc.ABC):
         """Stop the inference server for a model."""
 
     @abc.abstractmethod
-    async def status(self, model_id: str) -> ProcessStatus:
+    async def status(self, model_id: str, model: ModelDefinition | None = None) -> ProcessStatus:
         """Get the status of a model's inference server."""
 
     @abc.abstractmethod
-    async def health_check(self, model_id: str) -> bool:
+    async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if the model's inference server is ready to serve requests."""

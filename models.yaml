@@ -75,10 +75,9 @@ models:
     api_port: 1234
     vram_gb: 38
     always_on: true
+    enabled: false
     tool_proxy: true
-    aliases:
-      - research-fast
-      - vision-fast
+    aliases: []
     capabilities:
       - text
       - vision

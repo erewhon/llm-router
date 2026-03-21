@@ -125,7 +125,7 @@ class LlamaCppBackend(Backend):
         pid_file = PID_DIR / f"{model_id}.pid"
         pid_file.unlink(missing_ok=True)
 
-    async def status(self, model_id: str) -> ProcessStatus:
+    async def status(self, model_id: str, model: ModelDefinition | None = None) -> ProcessStatus:
         """Get current status of a model."""
         state = self._states.get(model_id, ModelState.STOPPED)
         proc = self._processes.get(model_id)
@@ -143,7 +143,7 @@ class LlamaCppBackend(Backend):
             error=self._errors.get(model_id),
         )
 
-    async def health_check(self, model_id: str) -> bool:
+    async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if llama-server is responding."""
         try:
             async with httpx.AsyncClient() as client:

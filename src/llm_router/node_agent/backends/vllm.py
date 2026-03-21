@@ -67,6 +67,7 @@ class VllmBackend(Backend):
 
     def __init__(self) -> None:
         self._ports: dict[str, int] = {}  # model_id -> port
+        self._models: dict[str, ModelDefinition] = {}  # model_id -> definition
         self._states: dict[str, ModelState] = {}
         self._errors: dict[str, str] = {}
         self._background_tasks: set[asyncio.Task[None]] = set()
@@ -81,6 +82,7 @@ class VllmBackend(Backend):
         unit_id = _sanitize_unit_id(model_id)
         port = self._get_port(model)
         self._ports[model_id] = port
+        self._models[model_id] = model
 
         # Check if already running via systemd
         if await self._is_active(unit_id):
@@ -171,8 +173,10 @@ class VllmBackend(Backend):
         self._states[model_id] = ModelState.STOPPED
         self._errors.pop(model_id, None)
 
-    async def status(self, model_id: str) -> ProcessStatus:
+    async def status(self, model_id: str, model: ModelDefinition | None = None) -> ProcessStatus:
         """Get current status of a model from systemd."""
+        if model is not None:
+            self._models[model_id] = model
         unit_id = _sanitize_unit_id(model_id)
         state = self._states.get(model_id, ModelState.STOPPED)
 
@@ -198,9 +202,9 @@ class VllmBackend(Backend):
         port = self._ports.get(model_id, VLLM_PORT)
 
         # For models not managed by systemd (e.g. multi-node Docker),
-        # fall back to API health check
+        # fall back to API health check — verify the correct model is serving
         if state in (ModelState.STOPPED, ModelState.ERROR):
-            if await self.health_check(model_id):
+            if await self.health_check(model_id, model=self._models.get(model_id)):
                 state = ModelState.RUNNING
                 self._states[model_id] = state
                 self._errors.pop(model_id, None)
@@ -216,8 +220,8 @@ class VllmBackend(Backend):
             error=self._errors.get(model_id),
         )
 
-    async def health_check(self, model_id: str) -> bool:
-        """Check if vLLM is responding to requests."""
+    async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
+        """Check if vLLM is responding and serving the expected model."""
         port = self._ports.get(model_id, VLLM_PORT)
         try:
             async with httpx.AsyncClient() as client:
@@ -225,7 +229,14 @@ class VllmBackend(Backend):
                     f"http://localhost:{port}/v1/models",
                     timeout=5,
                 )
-                return resp.status_code == 200
+                if resp.status_code != 200:
+                    return False
+                if model is None:
+                    return True
+                # Verify the served model matches the expected hf_repo
+                data = resp.json()
+                served_ids = {m.get("id", "") for m in data.get("data", [])}
+                return model.hf_repo in served_ids
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
             return False
 

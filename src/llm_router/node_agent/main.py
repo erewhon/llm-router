@@ -63,7 +63,9 @@ async def lifespan(app: FastAPI):
     assert _registry is not None
     node_models = _registry.models_for_node(_node_name)
     for model_id, model in node_models.items():
-        if model.always_on:
+        if model.always_on and model.mode_tag is None:
+            # Only auto-start models without a mode tag.
+            # Mode-tagged models (mode:big, mode:default) are managed by spark-mode.sh.
             backend = _get_backend(model.backend)
             logger.info(f"Auto-starting always-on model: {model_id}")
             try:
@@ -82,7 +84,7 @@ async def start_model(model_id: str, req: ModelStartRequest | None = None) -> Mo
     model_id, model = _get_model(model_id)
     backend = _get_backend(model.backend)
 
-    status = await backend.status(model_id)
+    status = await backend.status(model_id, model=model)
     if status.state == ModelState.RUNNING:
         return ModelStatusResponse(
             model_id=model_id,
@@ -94,7 +96,7 @@ async def start_model(model_id: str, req: ModelStartRequest | None = None) -> Mo
         )
 
     await backend.start(model_id, model)
-    status = await backend.status(model_id)
+    status = await backend.status(model_id, model=model)
 
     return ModelStatusResponse(
         model_id=model_id,
@@ -114,7 +116,7 @@ async def stop_model(model_id: str) -> ModelStatusResponse:
     backend = _get_backend(model.backend)
 
     await backend.stop(model_id)
-    status = await backend.status(model_id)
+    status = await backend.status(model_id, model=model)
 
     return ModelStatusResponse(
         model_id=model_id,
@@ -129,7 +131,7 @@ async def model_status(model_id: str) -> ModelStatusResponse:
     """Get the status of a model's inference backend."""
     model_id, model = _get_model(model_id)
     backend = _get_backend(model.backend)
-    status = await backend.status(model_id)
+    status = await backend.status(model_id, model=model)
 
     return ModelStatusResponse(
         model_id=model_id,
@@ -150,7 +152,7 @@ async def list_models() -> list[ModelListEntry]:
     entries = []
     for model_id, model in node_models.items():
         backend = _get_backend(model.backend)
-        status = await backend.status(model_id)
+        status = await backend.status(model_id, model=model)
         entries.append(
             ModelListEntry(
                 model_id=model_id,
@@ -173,7 +175,7 @@ async def health() -> NodeHealthResponse:
     running = []
     for model_id, model in node_models.items():
         backend = _get_backend(model.backend)
-        status = await backend.status(model_id)
+        status = await backend.status(model_id, model=model)
         if status.state == ModelState.RUNNING:
             running.append(model_id)
 

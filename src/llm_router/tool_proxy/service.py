@@ -61,7 +61,8 @@ def _get_client(model: str = "auto") -> AsyncOpenAI:
         # LiteLLM may send "openai/Repo/Name" — strip the prefix
         model_clean = model.removeprefix("openai/")
         for model_id, mdef in _model_registry.models.items():
-            if model_id == model_clean or model_clean in mdef.aliases or mdef.hf_repo == model_clean:
+            hf_base = mdef.hf_repo.split("#")[0]  # Strip #nothink etc.
+            if model_id == model_clean or model_clean in mdef.aliases or hf_base == model_clean or mdef.hf_repo == model_clean:
                 # Resolve the actual backend URL (not tool proxy port)
                 if mdef.multi_node:
                     head = mdef.multi_node.head_node or mdef.multi_node.nodes[0]
@@ -115,6 +116,7 @@ async def chat_completions(request: Request):
                 break
     if extra_body:
         extra_kwargs["extra_body"] = extra_body
+        logger.info(f"extra_body injected: {extra_body}")
 
     # Merge client tools with proxy tools (proxy names take precedence)
     client_tools = body.get("tools") or []

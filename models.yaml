@@ -85,8 +85,10 @@ models:
 
   # --- Default mode: individual models on each Spark ---
 
+  # Coder models — all nothink by default. Use thinker for reasoning.
+
   qwen3.5-35b-a3b-spark:
-    hf_repo: Qwen/Qwen3.5-35B-A3B
+    hf_repo: Qwen/Qwen3.5-35B-A3B#nothink
     backend: vllm
     node: archimedes
     api_port: 5391
@@ -102,28 +104,41 @@ models:
       - tool_calling
     tags:
       - mode:default
+      - nothink
     vllm_args:
       tool_call_parser: qwen3_xml
 
-  qwen3.5-35b-a3b-spark-nothink:
-    hf_repo: Qwen/Qwen3.5-35B-A3B#nothink
-    backend: vllm
-    node: archimedes
-    api_port: 5391
-    vram_gb: 70
+  qwen3.5-9b-coder:
+    hf_repo: qwen/qwen3.5-9b
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 7
     always_on: true
     tool_proxy: true
     aliases:
       - coder-fast
     capabilities:
       - text
-      - vision
       - tool_calling
     tags:
-      - mode:default
       - nothink
-    vllm_args:
-      tool_call_parser: qwen3_xml
+
+  qwen3.5-4b-coder:
+    hf_repo: qwen3.5-4b-uncensored-hauhaucs-aggressive
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 5
+    always_on: true
+    tool_proxy: true
+    aliases:
+      - coder-veryfast
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - nothink
 
   qwen3.5-27b-spark:
     hf_repo: Qwen/Qwen3.5-27B

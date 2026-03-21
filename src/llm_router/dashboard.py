@@ -639,17 +639,14 @@ function render(data) {
       </div>
       <div class="alias-item">
         <span class="alias-name">coder-fast</span>
-        <span class="alias-desc">Code search, no thinking (35B MoE)</span>
+        <span class="alias-desc">Quick code tasks (9B, no thinking)</span>
+      </div>
+      <div class="alias-item">
+        <span class="alias-name">coder-veryfast</span>
+        <span class="alias-desc">AI grep (4B, no thinking)</span>
       </div>
       <div class="alias-item" style="opacity: 0"></div>
-      <div class="alias-item">
-        <span class="alias-name">research-fast</span>
-        <span class="alias-desc">Fast web search via VPN (35B MoE)</span>
-      </div>
-      <div class="alias-item">
-        <span class="alias-name">vision-fast</span>
-        <span class="alias-desc">Fast image understanding (35B MoE)</span>
-      </div>
+      <div class="alias-item" style="opacity: 0"></div>
     </div>`;
 
   // Nodes

@@ -85,7 +85,9 @@ async def chat_completions(request: Request):
     body = await request.json()
 
     messages = list(body.get("messages", []))
-    model = body.get("model", "auto")
+    raw_model = body.get("model", "auto")
+    # Strip #nothink suffix — used for routing, not sent to backend
+    model = raw_model.split("#")[0] if "#" in raw_model else raw_model
     raw_max_tokens = body.get("max_tokens", 4096)
     max_tokens = min(raw_max_tokens, _max_output_tokens)
     if raw_max_tokens != max_tokens:
@@ -97,6 +99,22 @@ async def chat_completions(request: Request):
     for key in ("top_p", "frequency_penalty", "presence_penalty", "stop", "seed"):
         if key in body:
             extra_kwargs[key] = body[key]
+
+    # Pass through extra_body for backend-specific params (e.g. chat_template_kwargs)
+    extra_body: dict[str, Any] = {}
+    if "chat_template_kwargs" in body:
+        extra_body["chat_template_kwargs"] = body["chat_template_kwargs"]
+    # Inject enable_thinking=false for models tagged with "nothink"
+    if _model_registry is not None:
+        raw_clean = raw_model.removeprefix("openai/")
+        for mid, mdef in _model_registry.models.items():
+            if mid == raw_clean or raw_clean in mdef.aliases or mdef.hf_repo == raw_clean:
+                if "nothink" in mdef.tags:
+                    extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
+                    logger.info(f"Disabled thinking for {raw_model} (nothink tag)")
+                break
+    if extra_body:
+        extra_kwargs["extra_body"] = extra_body
 
     # Merge client tools with proxy tools (proxy names take precedence)
     client_tools = body.get("tools") or []

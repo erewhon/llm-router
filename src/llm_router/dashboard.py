@@ -639,7 +639,7 @@ function render(data) {
       </div>
       <div class="alias-item">
         <span class="alias-name">coder-fast</span>
-        <span class="alias-desc">Fast code gen (30B MoE)</span>
+        <span class="alias-desc">Code search, no thinking (35B MoE)</span>
       </div>
       <div class="alias-item" style="opacity: 0"></div>
       <div class="alias-item">

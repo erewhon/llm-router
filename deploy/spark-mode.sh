@@ -124,6 +124,7 @@ stop_multinode() {
 stop_default_containers() {
     ssh_cmd "$ARCHIMEDES" "docker stop vllm-default 2>/dev/null" || true
     ssh_cmd "$HYPATIA" "docker stop vllm-default 2>/dev/null" || true
+    ssh_cmd "$HYPATIA" "docker stop vllm-4b 2>/dev/null" || true
 }
 
 stop_all() {
@@ -160,27 +161,45 @@ start_default_archimedes() {
 }
 
 start_default_hypatia() {
-    local model="Qwen/Qwen3.5-27B"
     local image="$BIG_IMAGE"
-    local port=5391
 
-    info "[hypatia] Starting vLLM: $model"
+    # Qwen3.5-27B (thinker) on port 5391
+    local model1="Qwen/Qwen3.5-27B"
+    info "[hypatia] Starting vLLM: $model1 (port 5391)"
     ssh_cmd "$HYPATIA" "docker run --gpus all --network host --ipc=host --shm-size=16g \
         --rm -d --entrypoint bash --name vllm-default \
         -e HF_HUB_OFFLINE=1 \
         -v $HF_CACHE:/root/.cache/huggingface/hub:ro \
-        $image -c 'vllm serve $model \
-            --host 0.0.0.0 --port $port \
+        $image -c 'vllm serve $model1 \
+            --host 0.0.0.0 --port 5391 \
             --enable-auto-tool-choice --tool-call-parser qwen3_xml \
             --reasoning-parser qwen3 \
-            --gpu-memory-utilization 0.90 --enforce-eager \
+            --gpu-memory-utilization 0.45 --enforce-eager \
             --max-model-len 131072 \
             2>&1 | tee /tmp/vllm-serve.log'"
+
+    # Wait for 27B to claim its VRAM before starting 4B (avoids allocation conflict)
+    info "[hypatia] Waiting for 27B to initialize..."
+    sleep 15
+
+    # Qwen3.5-4B (coder-veryfast) on port 5393
+    local model2="Qwen/Qwen3.5-4B"
+    info "[hypatia] Starting vLLM: $model2 (port 5393)"
+    ssh_cmd "$HYPATIA" "docker run --gpus all --network host --ipc=host --shm-size=4g \
+        --rm -d --entrypoint bash --name vllm-4b \
+        -e HF_HUB_OFFLINE=1 \
+        -v $HF_CACHE:/root/.cache/huggingface/hub:ro \
+        $image -c 'vllm serve $model2 \
+            --host 0.0.0.0 --port 5393 \
+            --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+            --gpu-memory-utilization 0.15 --enforce-eager \
+            --max-model-len 131072 \
+            2>&1 | tee /tmp/vllm-serve-4b.log'"
 
     info "[hypatia] Starting ComfyUI..."
     ssh_cmd "$HYPATIA" "sudo systemctl start comfyui 2>/dev/null" || true
 
-    ok "[hypatia] Default mode started (Qwen3.5-27B on port $port + ComfyUI)"
+    ok "[hypatia] Default mode started (27B:5391 + 4B:5393 + ComfyUI)"
 }
 
 start_big() {

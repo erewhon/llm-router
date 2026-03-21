@@ -125,11 +125,11 @@ models:
       - nothink
 
   qwen3.5-4b-coder:
-    hf_repo: Qwen/Qwen3.5-4B#nothink
-    backend: vllm
-    node: hypatia
-    api_port: 5393
-    vram_gb: 8
+    hf_repo: qwen3.5-4b-uncensored-hauhaucs-aggressive
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 5
     always_on: true
     tool_proxy: true
     aliases:
@@ -138,10 +138,7 @@ models:
       - text
       - tool_calling
     tags:
-      - mode:default
       - nothink
-    vllm_args:
-      tool_call_parser: qwen3_xml
 
   qwen3.5-27b-spark:
     hf_repo: Qwen/Qwen3.5-27B

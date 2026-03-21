@@ -43,7 +43,7 @@ class LmStudioBackend(Backend):
         """No-op — LMStudio is managed externally."""
         logger.info(f"LMStudio model {model_id} cannot be stopped by the agent")
 
-    async def status(self, model_id: str) -> ProcessStatus:
+    async def status(self, model_id: str, model: ModelDefinition | None = None) -> ProcessStatus:
         """Probe the LMStudio API to determine if the model is running."""
         port = self._port_for(model_id)
         running = await self.health_check(model_id)
@@ -53,7 +53,7 @@ class LmStudioBackend(Backend):
             port=port if running else None,
         )
 
-    async def health_check(self, model_id: str) -> bool:
+    async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if LMStudio is responding on its API port."""
         port = self._port_for(model_id)
         try:

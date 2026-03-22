@@ -38,6 +38,7 @@ def _litellm_model_entry(
             "always_on": model.always_on,
             "tool_proxy": model.tool_proxy,
             "vram_gb": model.vram_gb,
+            **({"health_check": False} if model.backend.value == "external" else {}),
             "capabilities": [c.value for c in model.capabilities],
             **({"tags": model.tags} if model.tags else {}),
             **(

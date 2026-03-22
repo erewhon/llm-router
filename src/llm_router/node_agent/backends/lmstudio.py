@@ -54,12 +54,20 @@ class LmStudioBackend(Backend):
         )
 
     async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
-        """Check if LMStudio is responding on its API port."""
+        """Check if LMStudio is responding and serving the expected model."""
         port = self._port_for(model_id)
         try:
             async with httpx.AsyncClient(timeout=3) as client:
                 resp = await client.get(f"http://localhost:{port}/v1/models")
-                return resp.status_code == 200
+                if resp.status_code != 200:
+                    return False
+                if model is None:
+                    return True
+                # Verify the specific model is loaded
+                data = resp.json()
+                served_ids = {m.get("id", "") for m in data.get("data", [])}
+                hf_base = model.hf_repo.split("#")[0]
+                return hf_base in served_ids or model.hf_repo in served_ids
         except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
             return False
 

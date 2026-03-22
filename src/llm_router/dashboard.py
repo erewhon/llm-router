@@ -536,10 +536,10 @@ function sparklineSvg(vals, color) {
     ` stroke-linejoin="round"/></svg>`;
 }
 
-let showDisabled = false;
-function toggleDisabled(checked) {
-  showDisabled = checked;
-  document.querySelectorAll('tr.disabled').forEach(tr => {
+let showHidden = false;
+function toggleHidden(checked) {
+  showHidden = checked;
+  document.querySelectorAll('tr.hidden-row').forEach(tr => {
     tr.style.display = checked ? '' : 'none';
   });
 }
@@ -744,12 +744,12 @@ function render(data) {
   html += `</div>`;
 
   // Models table
-  const disabledCount = models.filter(m => m.enabled === false).length;
+  const hiddenCount = models.filter(m => m.enabled === false || m.agent_state === 'stopped').length;
   html += `<div class="section-title">Models</div>`;
-  if (disabledCount > 0) {
+  if (hiddenCount > 0) {
     html += `<div class="toggle-row">
-      <input type="checkbox" id="show-disabled" ${showDisabled ? 'checked' : ''} onchange="toggleDisabled(this.checked)">
-      <label for="show-disabled">Show disabled models (${disabledCount})</label>
+      <input type="checkbox" id="show-hidden" ${showHidden ? 'checked' : ''} onchange="toggleHidden(this.checked)">
+      <label for="show-hidden">Show disabled/stopped models (${hiddenCount})</label>
     </div>`;
   }
   html += `<table><thead><tr>
@@ -796,8 +796,9 @@ function render(data) {
         `litellm: ${hLabel}</div>`;
     }
 
-    const hideDisabled = m.enabled === false && !showDisabled;
-    const rowClass = m.enabled === false ? ` class="disabled"${hideDisabled ? ' style="display:none"' : ''}` : '';
+    const isHidden = m.enabled === false || m.agent_state === 'stopped';
+    const hideRow = isHidden && !showHidden;
+    const rowClass = isHidden ? ` class="disabled hidden-row"${hideRow ? ' style="display:none"' : ''}` : '';
     html += `<tr${rowClass}>
       <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo}</div>
         ${m.gguf_file ? `<div class="model-repo">${m.gguf_file}</div>` : ''}</td>

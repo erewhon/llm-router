@@ -72,6 +72,8 @@ class ModelListEntry(BaseModel):
     backend: str
     always_on: bool
     vram_gb: int
+    requests_running: int = 0
+    requests_waiting: int = 0
 
 
 class RayJoinRequest(BaseModel):

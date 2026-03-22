@@ -262,6 +262,64 @@ async def _stream_chat_completion(
     client = _get_client(model)
     chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
+    # --- Fast path: no tools → skip tool loop, stream directly ---
+    if not all_tools:
+        try:
+            stream_response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=True,
+                **extra_kwargs,
+            )
+        except Exception as e:
+            logger.error(f"vLLM streaming request failed: {e}")
+            yield build_sse_chunk(chunk_id, model, role="assistant")
+            yield build_sse_chunk(chunk_id, model, content=f"Error: {e}", finish_reason="stop")
+            yield "data: [DONE]\n\n"
+            return
+
+        yield build_sse_chunk(chunk_id, model, role="assistant")
+        parser = ThinkingStreamParser()
+
+        async for chunk in stream_response:
+            if not chunk.choices:
+                continue
+            delta = chunk.choices[0].delta
+            finish_reason = chunk.choices[0].finish_reason
+
+            delta_reasoning = getattr(delta, "reasoning", None) or getattr(delta, "reasoning_content", None)
+            if delta_reasoning:
+                yield build_sse_chunk(chunk_id, model, reasoning_content=delta_reasoning)
+
+            delta_content = delta.content or ""
+            if delta_content:
+                reasoning_text, content_text = parser.feed(delta_content)
+                if reasoning_text:
+                    yield build_sse_chunk(chunk_id, model, reasoning_content=reasoning_text)
+                if content_text:
+                    yield build_sse_chunk(chunk_id, model, content=content_text)
+
+            if finish_reason:
+                if parser._buffer:
+                    remaining_r, remaining_c = parser.feed("")
+                    if not remaining_r and not remaining_c:
+                        if parser.in_think:
+                            remaining_r = parser._buffer
+                        else:
+                            remaining_c = parser._buffer
+                        parser._buffer = ""
+                    if remaining_r:
+                        yield build_sse_chunk(chunk_id, model, reasoning_content=remaining_r)
+                    if remaining_c:
+                        yield build_sse_chunk(chunk_id, model, content=remaining_c)
+                yield build_sse_chunk(chunk_id, model, finish_reason=finish_reason)
+                break
+
+        yield "data: [DONE]\n\n"
+        return
+
     # --- Tool loop (non-streaming) ---
     for round_num in range(_max_tool_rounds):
         try:

@@ -516,13 +516,21 @@ async function pollMetrics() {
     lastData.node_metrics = nm;
     // Also update agent_state on models from fresh metrics
     const stateMap = {};
+    const reqMap = {};
     for (const m of Object.values(nm)) {
       for (const mdl of (m.models || [])) {
         stateMap[mdl.model_id] = mdl.state;
+        reqMap[mdl.model_id] = {
+          running: mdl.requests_running || 0,
+          waiting: mdl.requests_waiting || 0,
+        };
       }
     }
     for (const m of lastData.models) {
       m.agent_state = stateMap[m.id] || null;
+      const reqs = reqMap[m.id] || {};
+      m.requests_running = reqs.running || 0;
+      m.requests_waiting = reqs.waiting || 0;
     }
     updateHistory(nm);
     document.getElementById('content').innerHTML = render(lastData);

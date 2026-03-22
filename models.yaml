@@ -88,13 +88,13 @@ models:
   # Coder models — all nothink by default. Use thinker for reasoning.
 
   qwen3-coder-next-spark:
-    hf_repo: Qwen/Qwen3-Coder-Next-FP8
+    hf_repo: Qwen/Qwen3-Coder-Next-FP8#nothink
     backend: vllm
     node: archimedes
     api_port: 5391
     vram_gb: 76
     always_on: true
-    tool_proxy: false
+    tool_proxy: true
     aliases:
       - coder
     capabilities:
@@ -149,7 +149,7 @@ models:
     api_port: 1234
     vram_gb: 5
     always_on: true
-    tool_proxy: false
+    tool_proxy: true
     aliases:
       - coder-veryfast
     capabilities:

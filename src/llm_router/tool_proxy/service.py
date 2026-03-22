@@ -105,28 +105,35 @@ async def chat_completions(request: Request):
     extra_body: dict[str, Any] = {}
     if "chat_template_kwargs" in body:
         extra_body["chat_template_kwargs"] = body["chat_template_kwargs"]
-    # Inject enable_thinking=false for models tagged with "nothink"
+    # Check for nothink tag — disables thinking and skips proxy tool injection
+    is_nothink = False
     if _model_registry is not None:
         raw_clean = raw_model.removeprefix("openai/")
         for mid, mdef in _model_registry.models.items():
-            if mid == raw_clean or raw_clean in mdef.aliases or mdef.hf_repo == raw_clean:
+            hf_base = mdef.hf_repo.split("#")[0]
+            if mid == raw_clean or raw_clean in mdef.aliases or hf_base == raw_clean or mdef.hf_repo == raw_clean:
                 if "nothink" in mdef.tags:
+                    is_nothink = True
                     extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
                     logger.info(f"Disabled thinking for {raw_model} (nothink tag)")
                 break
     if extra_body:
         extra_kwargs["extra_body"] = extra_body
-        logger.info(f"extra_body injected: {extra_body}")
 
     # Merge client tools with proxy tools (proxy names take precedence)
+    # Skip proxy tool injection for nothink models — tools cause tool-loop overhead
     client_tools = body.get("tools") or []
     tool_choice = body.get("tool_choice", "auto")
-    proxy_names = _registry.names
-    all_tools = list(_registry.definitions)
-    for ct in client_tools:
-        ct_name = ct.get("function", {}).get("name")
-        if ct_name and ct_name not in proxy_names:
-            all_tools.append(ct)
+    if is_nothink:
+        all_tools = list(client_tools)
+        logger.info("Skipping proxy tool injection (nothink model)")
+    else:
+        proxy_names = _registry.names
+        all_tools = list(_registry.definitions)
+        for ct in client_tools:
+            ct_name = ct.get("function", {}).get("name")
+            if ct_name and ct_name not in proxy_names:
+                all_tools.append(ct)
 
     if stream:
         return StreamingResponse(

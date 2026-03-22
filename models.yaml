@@ -94,7 +94,7 @@ models:
     api_port: 5391
     vram_gb: 76
     always_on: true
-    tool_proxy: true
+    tool_proxy: false
     aliases:
       - coder
     capabilities:

@@ -253,7 +253,7 @@ start_big() {
         --reasoning-parser qwen3 \
         --gpu-memory-utilization 0.90 --enforce-eager \
         --kv-cache-dtype fp8 \
-        --max-model-len 262144 \
+        --max-model-len 131072 \
         2>&1 | tee /tmp/vllm-serve.log'"
 
     echo ""

@@ -140,7 +140,7 @@ stop_all() {
 # --- Start functions ---
 
 start_default_archimedes() {
-    local model="Qwen/Qwen3.5-35B-A3B"
+    local model="Qwen/Qwen3-Coder-Next-FP8"
     local image="$BIG_IMAGE"
     local port=5391
 
@@ -157,7 +157,7 @@ start_default_archimedes() {
             --max-model-len 131072 \
             2>&1 | tee /tmp/vllm-serve.log'"
 
-    ok "[archimedes] Default mode started (Qwen3.5-35B-A3B on port $port)"
+    ok "[archimedes] Default mode started (Qwen3-Coder-Next-FP8 on port $port)"
 }
 
 start_default_hypatia() {

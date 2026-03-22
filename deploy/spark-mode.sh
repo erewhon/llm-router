@@ -151,7 +151,7 @@ start_default_archimedes() {
         -v $HF_CACHE:/root/.cache/huggingface/hub:ro \
         $image -c 'vllm serve $model \
             --host 0.0.0.0 --port $port \
-            --enable-auto-tool-choice --tool-call-parser qwen3_xml \
+            --enable-auto-tool-choice --tool-call-parser qwen3_coder \
             --reasoning-parser qwen3 \
             --gpu-memory-utilization 0.90 --enforce-eager \
             --max-model-len 131072 \

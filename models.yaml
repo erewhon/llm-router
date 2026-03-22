@@ -103,7 +103,7 @@ models:
     tags:
       - mode:default
     vllm_args:
-      tool_call_parser: qwen3_xml
+      tool_call_parser: qwen3_coder
 
   qwen3.5-35b-a3b-spark:
     hf_repo: Qwen/Qwen3.5-35B-A3B#nothink

@@ -220,6 +220,25 @@ class VllmBackend(Backend):
             error=self._errors.get(model_id),
         )
 
+    async def get_request_counts(self, model_id: str) -> tuple[int, int]:
+        """Get (running, waiting) request counts from vLLM /metrics endpoint."""
+        port = self._ports.get(model_id, VLLM_PORT)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"http://localhost:{port}/metrics", timeout=3)
+                if resp.status_code != 200:
+                    return 0, 0
+                running = 0
+                waiting = 0
+                for line in resp.text.splitlines():
+                    if line.startswith("vllm:num_requests_running{"):
+                        running = int(float(line.split()[-1]))
+                    elif line.startswith("vllm:num_requests_waiting{"):
+                        waiting = int(float(line.split()[-1]))
+                return running, waiting
+        except Exception:
+            return 0, 0
+
     async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if vLLM is responding and serving the expected model."""
         port = self._ports.get(model_id, VLLM_PORT)

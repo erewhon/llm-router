@@ -185,6 +185,17 @@ def _build_model_table(models: list[dict], show_disabled: bool = False) -> Table
             display = "healthy" if health == "routed" else health
             health_text = _health_dot(display)
 
+        # Request activity
+        req_running = m.get("requests_running", 0)
+        req_waiting = m.get("requests_waiting", 0)
+        if req_running > 0 or req_waiting > 0:
+            busy = Text()
+            busy.append(" ")
+            busy.append(f"\u26a1{req_running}", style="yellow")
+            if req_waiting > 0:
+                busy.append(f"+{req_waiting}w", style="dim yellow")
+            health_text.append_text(busy)
+
         style = Style(dim=disabled)
         table.add_row(
             m["id"],

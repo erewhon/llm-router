@@ -153,6 +153,9 @@ async def list_models() -> list[ModelListEntry]:
     for model_id, model in node_models.items():
         backend = _get_backend(model.backend)
         status = await backend.status(model_id, model=model)
+        running, waiting = (0, 0)
+        if status.state == ModelState.RUNNING:
+            running, waiting = await backend.get_request_counts(model_id)
         entries.append(
             ModelListEntry(
                 model_id=model_id,
@@ -161,6 +164,8 @@ async def list_models() -> list[ModelListEntry]:
                 backend=model.backend.value,
                 always_on=model.always_on,
                 vram_gb=model.vram_gb,
+                requests_running=running,
+                requests_waiting=waiting,
             )
         )
     return entries

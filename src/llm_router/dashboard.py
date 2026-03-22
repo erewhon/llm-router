@@ -166,11 +166,16 @@ async def api_models():
         else:
             node_metrics[name] = result
 
-    # Build model_id -> agent state lookup
+    # Build model_id -> agent state + request counts lookup
     agent_model_states: dict[str, str] = {}
+    agent_model_requests: dict[str, dict] = {}
     for nm in node_metrics.values():
         for m in nm.get("models", []):
             agent_model_states[m["model_id"]] = m["state"]
+            agent_model_requests[m["model_id"]] = {
+                "running": m.get("requests_running", 0),
+                "waiting": m.get("requests_waiting", 0),
+            }
 
     # Build response from registry
     models = []
@@ -195,6 +200,7 @@ async def api_models():
 
         # Node agent state (running/stopped/starting/error)
         agent_state = agent_model_states.get(model_id)
+        reqs = agent_model_requests.get(model_id, {})
 
         api_base = _registry.get_api_base(model_id)
 
@@ -214,6 +220,8 @@ async def api_models():
             "api_base": api_base,
             "health": health if model.enabled else "disabled",
             "agent_state": agent_state if model.enabled else None,
+            "requests_running": reqs.get("running", 0),
+            "requests_waiting": reqs.get("waiting", 0),
             "gguf_file": model.gguf_file,
         })
 
@@ -794,6 +802,17 @@ function render(data) {
         `<span class="health-dot ${hDot}"` +
         ` style="width:6px;height:6px"></span>` +
         `litellm: ${hLabel}</div>`;
+    }
+
+    // Request activity indicator
+    const reqRunning = m.requests_running || 0;
+    const reqWaiting = m.requests_waiting || 0;
+    if (reqRunning > 0 || reqWaiting > 0) {
+      healthExtra += `<div style="font-size:0.7rem;margin-top:2px">` +
+        `<span style="color:var(--yellow)">` +
+        `\u26a1 ${reqRunning} running` +
+        (reqWaiting > 0 ? `, ${reqWaiting} waiting` : '') +
+        `</span></div>`;
     }
 
     const isHidden = m.enabled === false || m.agent_state === 'stopped';

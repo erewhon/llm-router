@@ -34,3 +34,7 @@ class Backend(abc.ABC):
     @abc.abstractmethod
     async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if the model's inference server is ready to serve requests."""
+
+    async def get_request_counts(self, model_id: str) -> tuple[int, int]:
+        """Get (running, waiting) request counts. Override for backends that support it."""
+        return 0, 0

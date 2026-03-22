@@ -152,10 +152,11 @@ start_default_archimedes() {
         $image -c 'vllm serve $model \
             --host 0.0.0.0 --port $port \
             --enable-auto-tool-choice --tool-call-parser qwen3_coder \
-            --reasoning-parser qwen3 \
             --gpu-memory-utilization 0.90 --enforce-eager \
             --max-model-len 131072 \
             2>&1 | tee /tmp/vllm-serve.log'"
+    # Note: no --reasoning-parser for Coder-Next — conflicts with qwen3_coder tool parser
+    # The tool proxy's ThinkingStreamParser handles <think> tag separation instead
 
     ok "[archimedes] Default mode started (Qwen3-Coder-Next-FP8 on port $port)"
 }

@@ -81,6 +81,10 @@ async def _fetch_node_metrics(
                     result["models"].append({
                         "model_id": m.get("model_id", ""),
                         "state": m.get("state", "unknown"),
+                        "requests_running": m.get("requests_running", 0),
+                        "requests_waiting": m.get("requests_waiting", 0),
+                        "avg_tok_per_s": m.get("avg_tok_per_s"),
+                        "total_requests": m.get("total_requests", 0),
                     })
     except Exception:
         pass

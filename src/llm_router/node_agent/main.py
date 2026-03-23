@@ -154,8 +154,13 @@ async def list_models() -> list[ModelListEntry]:
         backend = _get_backend(model.backend)
         status = await backend.status(model_id, model=model)
         running, waiting = (0, 0)
+        avg_tok_s = None
+        total_reqs = 0
         if status.state == ModelState.RUNNING:
             running, waiting = await backend.get_request_counts(model_id)
+            throughput = await backend.get_throughput(model_id)
+            avg_tok_s = throughput.get("avg_tok_per_s")
+            total_reqs = throughput.get("request_count", 0)
         entries.append(
             ModelListEntry(
                 model_id=model_id,
@@ -166,6 +171,8 @@ async def list_models() -> list[ModelListEntry]:
                 vram_gb=model.vram_gb,
                 requests_running=running,
                 requests_waiting=waiting,
+                avg_tok_per_s=avg_tok_s,
+                total_requests=total_reqs,
             )
         )
     return entries

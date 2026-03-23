@@ -175,6 +175,8 @@ async def api_models():
             agent_model_requests[m["model_id"]] = {
                 "running": m.get("requests_running", 0),
                 "waiting": m.get("requests_waiting", 0),
+                "avg_tok_per_s": m.get("avg_tok_per_s"),
+                "total_requests": m.get("total_requests", 0),
             }
 
     # Build response from registry
@@ -222,6 +224,8 @@ async def api_models():
             "agent_state": agent_state if model.enabled else None,
             "requests_running": reqs.get("running", 0),
             "requests_waiting": reqs.get("waiting", 0),
+            "avg_tok_per_s": reqs.get("avg_tok_per_s"),
+            "total_requests": reqs.get("total_requests", 0),
             "gguf_file": model.gguf_file,
         })
 
@@ -523,6 +527,8 @@ async function pollMetrics() {
         reqMap[mdl.model_id] = {
           running: mdl.requests_running || 0,
           waiting: mdl.requests_waiting || 0,
+          avg_tok_per_s: mdl.avg_tok_per_s || null,
+          total_requests: mdl.total_requests || 0,
         };
       }
     }
@@ -531,6 +537,8 @@ async function pollMetrics() {
       const reqs = reqMap[m.id] || {};
       m.requests_running = reqs.running || 0;
       m.requests_waiting = reqs.waiting || 0;
+      m.avg_tok_per_s = reqs.avg_tok_per_s || null;
+      m.total_requests = reqs.total_requests || 0;
     }
     updateHistory(nm);
     document.getElementById('content').innerHTML = render(lastData);
@@ -812,15 +820,26 @@ function render(data) {
         `litellm: ${hLabel}</div>`;
     }
 
-    // Request activity indicator
+    // Request activity + throughput indicator
     const reqRunning = m.requests_running || 0;
     const reqWaiting = m.requests_waiting || 0;
+    const tokPerS = m.avg_tok_per_s;
+    const totalReqs = m.total_requests || 0;
+
+    let activityParts = [];
     if (reqRunning > 0 || reqWaiting > 0) {
+      activityParts.push(`<span style="color:var(--yellow)">\u26a1 ${reqRunning} active` +
+        (reqWaiting > 0 ? ` +${reqWaiting}w` : '') + `</span>`);
+    }
+    if (tokPerS) {
+      activityParts.push(`<span style="color:var(--text-dim)">${tokPerS} tok/s</span>`);
+    }
+    if (totalReqs > 0) {
+      activityParts.push(`<span style="color:var(--text-dim)">${totalReqs} reqs</span>`);
+    }
+    if (activityParts.length > 0) {
       healthExtra += `<div style="font-size:0.7rem;margin-top:2px">` +
-        `<span style="color:var(--yellow)">` +
-        `\u26a1 ${reqRunning} running` +
-        (reqWaiting > 0 ? `, ${reqWaiting} waiting` : '') +
-        `</span></div>`;
+        activityParts.join(' · ') + `</div>`;
     }
 
     const isHidden = m.enabled === false || m.agent_state === 'stopped';

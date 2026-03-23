@@ -239,6 +239,37 @@ class VllmBackend(Backend):
         except Exception:
             return 0, 0
 
+    async def get_throughput(self, model_id: str) -> dict:
+        """Get throughput stats from vLLM /metrics endpoint."""
+        port = self._ports.get(model_id, VLLM_PORT)
+        try:
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(f"http://localhost:{port}/metrics", timeout=3)
+                if resp.status_code != 200:
+                    return {}
+                stats: dict = {}
+                for line in resp.text.splitlines():
+                    if line.startswith("vllm:generation_tokens_total{"):
+                        stats["gen_tokens_total"] = int(float(line.split()[-1]))
+                    elif line.startswith("vllm:prompt_tokens_total{"):
+                        stats["prompt_tokens_total"] = int(float(line.split()[-1]))
+                    elif line.startswith("vllm:request_generation_tokens_sum{"):
+                        stats["gen_tokens_sum"] = int(float(line.split()[-1]))
+                    elif line.startswith("vllm:request_generation_tokens_count{"):
+                        stats["request_count"] = int(float(line.split()[-1]))
+                    elif line.startswith("vllm:request_time_per_output_token_seconds_sum{"):
+                        stats["time_per_token_sum"] = float(line.split()[-1])
+                    elif line.startswith("vllm:request_time_per_output_token_seconds_count{"):
+                        stats["time_per_token_count"] = int(float(line.split()[-1]))
+                # Compute average tok/s
+                if stats.get("time_per_token_sum") and stats.get("time_per_token_count"):
+                    avg_time = stats["time_per_token_sum"] / stats["time_per_token_count"]
+                    if avg_time > 0:
+                        stats["avg_tok_per_s"] = round(1.0 / avg_time, 1)
+                return stats
+        except Exception:
+            return {}
+
     async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if vLLM is responding and serving the expected model."""
         port = self._ports.get(model_id, VLLM_PORT)

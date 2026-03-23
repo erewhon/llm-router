@@ -74,6 +74,8 @@ class ModelListEntry(BaseModel):
     vram_gb: int
     requests_running: int = 0
     requests_waiting: int = 0
+    avg_tok_per_s: float | None = None
+    total_requests: int = 0
 
 
 class RayJoinRequest(BaseModel):

@@ -850,9 +850,19 @@ function render(data) {
     const hideRow = isHidden && !showHidden;
     const rowClass = isHidden ? ` class="disabled hidden-row"${hideRow ? ' style="display:none"' : ''}` : '';
     html += `<tr${rowClass}>
-      <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo}</div>
+      <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo.split('#')[0]}</div>
         ${m.gguf_file ? `<div class="model-repo">${m.gguf_file}</div>` : ''}</td>
-      <td><span class="badge badge-backend">${m.backend}</span></td>
+      <td><span class="badge badge-backend">${m.backend}</span>${(() => {
+        const repo = m.hf_repo.split('#')[0].toLowerCase();
+        if (repo.includes('fp8')) return ' <span class="badge badge-tag">FP8</span>';
+        if (repo.includes('fp16')) return ' <span class="badge badge-tag">FP16</span>';
+        if (repo.includes('@q8_0') || repo.includes('-q8')) return ' <span class="badge badge-tag">Q8</span>';
+        if (repo.includes('@q6_k') || repo.includes('-q6')) return ' <span class="badge badge-tag">Q6</span>';
+        if (repo.includes('@q4_k') || repo.includes('-q4') || repo.includes('gptq-int4')) return ' <span class="badge badge-tag">Q4</span>';
+        if (repo.includes('@q3_k') || repo.includes('-q3')) return ' <span class="badge badge-tag">Q3</span>';
+        if (m.backend === 'vllm' && !repo.includes('gptq') && !repo.includes('awq')) return ' <span class="badge badge-tag">FP16</span>';
+        return '';
+      })()}</td>
       <td>${nodeStr}</td>
       <td>${m.vram_gb ? m.vram_gb + ' GB' : '<span style="color:var(--text-dim)">—</span>'}</td>
       <td>${aliases || '<span style="color:var(--text-dim)">—</span>'}</td>

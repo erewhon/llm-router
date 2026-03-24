@@ -123,6 +123,7 @@ stop_multinode() {
 
 stop_default_containers() {
     ssh_cmd "$ARCHIMEDES" "docker stop vllm-default 2>/dev/null" || true
+    ssh_cmd "$ARCHIMEDES" "docker stop sglang-default 2>/dev/null" || true
     ssh_cmd "$HYPATIA" "docker stop vllm-default 2>/dev/null" || true
     ssh_cmd "$HYPATIA" "docker stop vllm-4b 2>/dev/null" || true
 }
@@ -144,6 +145,8 @@ start_default_archimedes() {
     local image="$BIG_IMAGE"
     local port=5391
 
+    # Note: EAGLE3 + SGLang not viable on GB10 yet (Triton FP8 bug on sm_121a,
+    # GDN model loading issues). Using vLLM until SGLang fixes Blackwell support.
     info "[archimedes] Starting vLLM: $model"
     ssh_cmd "$ARCHIMEDES" "docker run --gpus all --network host --ipc=host --shm-size=16g \
         --rm -d --entrypoint bash --name vllm-default \
@@ -155,8 +158,6 @@ start_default_archimedes() {
             --gpu-memory-utilization 0.90 --enforce-eager \
             --max-model-len 131072 \
             2>&1 | tee /tmp/vllm-serve.log'"
-    # Note: no --reasoning-parser for Coder-Next — conflicts with qwen3_coder tool parser
-    # The tool proxy's ThinkingStreamParser handles <think> tag separation instead
 
     ok "[archimedes] Default mode started (Qwen3-Coder-Next-FP8 on port $port)"
 }

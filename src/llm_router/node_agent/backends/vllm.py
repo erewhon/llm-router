@@ -231,9 +231,10 @@ class VllmBackend(Backend):
                 running = 0
                 waiting = 0
                 for line in resp.text.splitlines():
-                    if line.startswith("vllm:num_requests_running{"):
+                    # Support both vLLM (vllm:) and SGLang (sglang:, sglang_) metric prefixes
+                    if "num_requests_running{" in line and not line.startswith("#"):
                         running = int(float(line.split()[-1]))
-                    elif line.startswith("vllm:num_requests_waiting{"):
+                    elif "num_requests_waiting{" in line and not line.startswith("#"):
                         waiting = int(float(line.split()[-1]))
                 return running, waiting
         except Exception:
@@ -251,15 +252,16 @@ class VllmBackend(Backend):
                 for line in resp.text.splitlines():
                     if line.startswith("vllm:generation_tokens_total{"):
                         stats["gen_tokens_total"] = int(float(line.split()[-1]))
-                    elif line.startswith("vllm:prompt_tokens_total{"):
+                    # Support both vLLM and SGLang metric prefixes
+                    elif "prompt_tokens_total{" in line and not line.startswith("#"):
                         stats["prompt_tokens_total"] = int(float(line.split()[-1]))
-                    elif line.startswith("vllm:request_generation_tokens_sum{"):
+                    elif "generation_tokens_sum{" in line and "request" in line and not line.startswith("#"):
                         stats["gen_tokens_sum"] = int(float(line.split()[-1]))
-                    elif line.startswith("vllm:request_generation_tokens_count{"):
+                    elif "generation_tokens_count{" in line and "request" in line and not line.startswith("#"):
                         stats["request_count"] = int(float(line.split()[-1]))
-                    elif line.startswith("vllm:request_time_per_output_token_seconds_sum{"):
+                    elif "time_per_output_token_seconds_sum{" in line and not line.startswith("#"):
                         stats["time_per_token_sum"] = float(line.split()[-1])
-                    elif line.startswith("vllm:request_time_per_output_token_seconds_count{"):
+                    elif "time_per_output_token_seconds_count{" in line and not line.startswith("#"):
                         stats["time_per_token_count"] = int(float(line.split()[-1]))
                 # Compute average tok/s
                 if stats.get("time_per_token_sum") and stats.get("time_per_token_count"):

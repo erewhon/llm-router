@@ -375,6 +375,21 @@ models:
     tags:
       - mode:default
 
+  # --- Auto-router (embedding classifier on delphi tool proxy) ---
+
+  auto-router:
+    hf_repo: auto
+    backend: external
+    api_base: http://delphi.local:5392
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - auto
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+
   # --- Utility models (delphi) ---
 
   nomic-embed:

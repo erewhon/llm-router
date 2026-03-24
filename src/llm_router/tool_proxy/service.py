@@ -22,6 +22,7 @@ import uuid
 from typing import Any
 
 import click
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -87,6 +88,36 @@ async def chat_completions(request: Request):
 
     messages = list(body.get("messages", []))
     raw_model = body.get("model", "auto")
+
+    # Auto-routing: classify prompt and pick the best model
+    if raw_model.removeprefix("openai/") == "auto":
+        from llm_router.tool_proxy.auto_router import classify
+        routed_alias = await classify(messages)
+        logger.info(f"Auto-routed to: {routed_alias}")
+        # Redirect through LiteLLM with the resolved alias
+        body["model"] = routed_alias
+        stream = body.get("stream", False)
+        litellm_url = os.environ.get("LITELLM_URL", "http://euclid.local:4010")
+        litellm_key = os.environ.get("LITELLM_KEY", "sk-litellm-master")
+        if stream:
+            async def _stream_proxy():
+                async with httpx.AsyncClient(timeout=600) as client:
+                    async with client.stream(
+                        "POST", f"{litellm_url}/v1/chat/completions",
+                        json=body, headers={"Authorization": f"Bearer {litellm_key}"},
+                    ) as resp:
+                        async for chunk in resp.aiter_bytes():
+                            yield chunk
+            return StreamingResponse(_stream_proxy(), media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+        else:
+            async with httpx.AsyncClient(timeout=600) as client:
+                resp = await client.post(
+                    f"{litellm_url}/v1/chat/completions",
+                    json=body, headers={"Authorization": f"Bearer {litellm_key}"},
+                )
+                return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
     # Strip #nothink suffix — used for routing, not sent to backend
     model = raw_model.split("#")[0] if "#" in raw_model else raw_model
     raw_max_tokens = body.get("max_tokens", 4096)
@@ -570,6 +601,16 @@ def create_app(
     tavily.register(_registry, api_key=tavily_key or os.environ.get("TAVILY_API_KEY"), proxy=proxy)
 
     logger.info(f"Tools: {', '.join(_registry.names)}")
+
+    # Initialize auto-router (embedding classifier) on startup
+    @app.on_event("startup")
+    async def _init_auto_router():
+        try:
+            from llm_router.tool_proxy.auto_router import initialize
+            await initialize(embed_url=vllm_url)  # LMStudio on same host
+        except Exception as e:
+            logger.warning(f"Auto-router init failed: {e} — 'auto' model will default to coder")
+
     return app
 
 

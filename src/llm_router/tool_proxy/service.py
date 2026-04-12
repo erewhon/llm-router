@@ -45,6 +45,12 @@ logger = logging.getLogger("tool-proxy")
 
 app = FastAPI(title="LLM Tool Proxy")
 
+# Fallback routes: model alias → ordered list of models to try.
+# On error (502, timeout, connection refused), tries the next model.
+FALLBACK_ROUTES: dict[str, list[str]] = {
+    "coder-resilient": ["coder", "minimax-m2.5-free"],
+}
+
 # Configured at startup
 _vllm_client: AsyncOpenAI | None = None
 _vllm_url: str = "http://localhost:5391"
@@ -82,6 +88,50 @@ def _get_client(model: str = "auto") -> AsyncOpenAI:
     return _vllm_client
 
 
+async def _try_litellm_stream(
+    litellm_url: str,
+    litellm_key: str,
+    body: dict[str, Any],
+) -> StreamingResponse | None:
+    """Try a streaming request to LiteLLM.
+
+    Returns StreamingResponse on success, None on server error/timeout
+    so the caller can try the next fallback model.
+    """
+    try:
+        client = httpx.AsyncClient(timeout=600)
+        resp = await client.send(
+            client.build_request(
+                "POST",
+                f"{litellm_url}/v1/chat/completions",
+                json=body,
+                headers={"Authorization": f"Bearer {litellm_key}"},
+            ),
+            stream=True,
+        )
+        if resp.status_code >= 500:
+            await resp.aclose()
+            await client.aclose()
+            return None
+
+        async def _proxy():
+            try:
+                async for chunk in resp.aiter_bytes():
+                    yield chunk
+            finally:
+                await resp.aclose()
+                await client.aclose()
+
+        return StreamingResponse(
+            _proxy(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+    except (httpx.ConnectError, httpx.TimeoutException):
+        await client.aclose()
+        return None
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     body = await request.json()
@@ -117,6 +167,69 @@ async def chat_completions(request: Request):
                     json=body, headers={"Authorization": f"Bearer {litellm_key}"},
                 )
                 return JSONResponse(content=resp.json(), status_code=resp.status_code)
+
+    # Fallback routing: try models in order, fall back on error
+    fallback_key = raw_model.removeprefix("openai/")
+    if fallback_key in FALLBACK_ROUTES:
+        fallback_models = FALLBACK_ROUTES[fallback_key]
+        stream = body.get("stream", False)
+        litellm_url = os.environ.get("LITELLM_URL", "http://euclid.local:4010")
+        litellm_key = os.environ.get("LITELLM_KEY", "sk-litellm-master")
+
+        for i, try_model in enumerate(fallback_models):
+            is_last = i == len(fallback_models) - 1
+            try_body = {**body, "model": try_model}
+            n = len(fallback_models)
+            logger.info(
+                f"Fallback route [{fallback_key}]: "
+                f"trying {try_model} ({i + 1}/{n})"
+            )
+
+            try:
+                if stream:
+                    result = await _try_litellm_stream(
+                        litellm_url, litellm_key, try_body,
+                    )
+                    if result is None and not is_last:
+                        logger.warning(
+                            f"Fallback: {try_model} failed, trying next"
+                        )
+                        continue
+                    if result is not None:
+                        return result
+                else:
+                    async with httpx.AsyncClient(timeout=600) as client:
+                        resp = await client.post(
+                            f"{litellm_url}/v1/chat/completions",
+                            json=try_body,
+                            headers={"Authorization": f"Bearer {litellm_key}"},
+                        )
+                        if resp.status_code >= 500 and not is_last:
+                            logger.warning(
+                                f"Fallback: {try_model} returned "
+                                f"{resp.status_code}, trying next"
+                            )
+                            continue
+                        return JSONResponse(
+                            content=resp.json(),
+                            status_code=resp.status_code,
+                        )
+            except (httpx.ConnectError, httpx.TimeoutException) as e:
+                if is_last:
+                    logger.error(
+                        f"Fallback: all models exhausted, last error: {e}"
+                    )
+                    return JSONResponse(
+                        status_code=502,
+                        content={
+                            "error": {
+                                "message": f"All fallback models failed: {e}"
+                            }
+                        },
+                    )
+                logger.warning(
+                    f"Fallback: {try_model} failed ({e}), trying next"
+                )
 
     # Strip #nothink suffix — used for routing, not sent to backend
     model = raw_model.split("#")[0] if "#" in raw_model else raw_model

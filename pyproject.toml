@@ -12,6 +12,8 @@ dependencies = [
     "openai>=1.60",
     "click>=8.1",
     "rich>=13.0",
+    "prometheus-client>=0.25.0",
+    "prisma>=0.15.0",
 ]
 
 [project.optional-dependencies]

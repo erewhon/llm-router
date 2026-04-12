@@ -22,27 +22,19 @@ StandardError=journal
 
 Environment=LITELLM_MASTER_KEY=sk-litellm-master
 Environment=LITELLM_LOG_LEVEL=INFO
+Environment=HOME=/tmp
+Environment=DATABASE_URL=postgresql://litellm:litellm-local@127.0.0.1:5432/litellm
 EnvironmentFile=-/etc/llm-router/proxy.env
 
 # --- Sandboxing ---
 
-# Run as a transient system user (no login, no home)
-DynamicUser=yes
+# Run as erewhon (Prisma needs a valid home directory for Path.home())
+User=erewhon
+Group=erewhon
 
-# Read-only access to /usr, /boot, /etc; no access to /home except what we bind
-ProtectSystem=strict
-
-# Private /tmp and /var/tmp
+# Filesystem protection (relaxed for Prisma query engine)
+ProtectSystem=full
 PrivateTmp=yes
-
-# Empty /home, then bind-mount only what we need on top
-ProtectHome=tmpfs
-BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/.venv
-BindReadOnlyPaths=/home/erewhon/Projects/erewhon/llm-router/deploy/litellm/config.yaml
-# uv-managed Python
-BindReadOnlyPaths=-/home/erewhon/.local/share/uv/python
-# Linuxbrew Python (fallback)
-BindReadOnlyPaths=-/home/linuxbrew
 
 # No kernel tunables, module loading, or hardware access
 ProtectKernelTunables=yes

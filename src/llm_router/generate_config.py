@@ -77,11 +77,12 @@ def generate_litellm_config(registry: ModelRegistry, *, mode: str | None = None)
         "litellm_settings": {
             "drop_params": True,
             "request_timeout": 600,
-            "disable_spend_logs": True,
+            "success_callback": ["prometheus"],
         },
         "general_settings": {
+            "database_url": "postgresql://litellm:litellm-local@127.0.0.1:5432/litellm",
             "background_health_checks": True,
-            "health_check_interval": 300,  # 5 min — avoids request pile-up during slow model loads
+            "health_check_interval": 300,  # 5 min
         },
     }
     return config

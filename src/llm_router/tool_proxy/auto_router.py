@@ -2,11 +2,15 @@
 
 Classifies incoming prompts and routes to the best model alias
 by comparing the prompt embedding against pre-computed category embeddings.
+
+Two-tier routing (optional): after classifying task type, scores prompt
+complexity to decide whether to upgrade coder → coder-hard (external API).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any
 
 import httpx
@@ -38,6 +42,18 @@ ROUTE_CATEGORIES: dict[str, str] = {
     ),
 }
 
+# Two-tier complexity routing: upgrade coder → coder-hard for complex tasks
+# Set AUTO_ROUTER_COMPLEXITY=0 to disable
+COMPLEXITY_ROUTING_ENABLED = os.environ.get("AUTO_ROUTER_COMPLEXITY", "1") != "0"
+COMPLEXITY_THRESHOLD = float(os.environ.get("AUTO_ROUTER_COMPLEXITY_THRESHOLD", "0.5"))
+
+COMPLEXITY_KEYWORDS: set[str] = {
+    "refactor", "debug", "fix bug", "implement", "migrate",
+    "redesign", "optimize", "rewrite", "multi-file", "across files",
+    "architecture", "integration", "end-to-end", "full-stack",
+    "complex", "large-scale", "entire codebase", "comprehensive",
+}
+
 # Cached category embeddings (computed at startup)
 _category_embeddings: dict[str, list[float]] | None = None
 _embed_url: str = ""
@@ -45,12 +61,44 @@ _embed_url: str = ""
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    dot = sum(x * y for x, y in zip(a, b))
+    dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
     if norm_a == 0 or norm_b == 0:
         return 0.0
     return dot / (norm_a * norm_b)
+
+
+def _score_complexity(text: str) -> float:
+    """Score prompt complexity 0.0-1.0 based on heuristics.
+
+    Signals: prompt length, complexity keywords, code blocks,
+    multiple file references.
+    """
+    score = 0.0
+    text_lower = text.lower()
+
+    # Length signal
+    if len(text) > 500:
+        score += 0.3
+    elif len(text) > 200:
+        score += 0.15
+
+    # Keyword matches
+    matches = sum(1 for kw in COMPLEXITY_KEYWORDS if kw in text_lower)
+    score += min(matches * 0.15, 0.4)
+
+    # Code block presence (suggests substantial code context)
+    if "```" in text:
+        score += 0.2
+
+    # Multiple file references
+    file_exts = (".py", ".ts", ".js", ".go", ".rs", ".java", ".tsx", ".jsx")
+    file_refs = sum(text_lower.count(ext) for ext in file_exts)
+    if file_refs >= 2:
+        score += 0.2
+
+    return min(score, 1.0)
 
 
 async def _get_embedding(text: str) -> list[float]:
@@ -82,7 +130,11 @@ async def initialize(embed_url: str = "http://localhost:1234") -> None:
         except Exception as e:
             logger.warning(f"  {alias}: failed to embed — {e}")
 
-    logger.info(f"Auto-router ready with {len(_category_embeddings)} categories")
+    complexity_status = "enabled" if COMPLEXITY_ROUTING_ENABLED else "disabled"
+    logger.info(
+        f"Auto-router ready with {len(_category_embeddings)} categories "
+        f"(complexity routing: {complexity_status}, threshold: {COMPLEXITY_THRESHOLD})"
+    )
 
 
 async def classify(messages: list[dict[str, Any]]) -> str:
@@ -132,5 +184,19 @@ async def classify(messages: list[dict[str, Any]]) -> str:
             best_score = score
             best_alias = alias
 
-    logger.info(f"Auto-route: '{classify_text[:60]}...' → {best_alias} ({best_score:.3f}) scores={scores}")
+    logger.info(
+        f"Auto-route: '{classify_text[:60]}...' -> {best_alias} "
+        f"({best_score:.3f}) scores={scores}"
+    )
+
+    # Two-tier: upgrade coder → coder-hard for complex prompts
+    if COMPLEXITY_ROUTING_ENABLED and best_alias == "coder":
+        complexity = _score_complexity(user_msg)
+        if complexity >= COMPLEXITY_THRESHOLD:
+            logger.info(
+                f"Complexity upgrade: coder → coder-hard "
+                f"(score={complexity:.2f}, threshold={COMPLEXITY_THRESHOLD})"
+            )
+            return "coder-hard"
+
     return best_alias

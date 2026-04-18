@@ -1,0 +1,33 @@
+# systemd unit for Orpheus TTS FastAPI server (OpenAI-compatible /v1/audio/speech)
+# Install: sudo cp orpheus-fastapi.service /etc/systemd/system/orpheus-fastapi.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now orpheus-fastapi
+
+[Unit]
+Description=Orpheus TTS FastAPI Server
+After=orpheus-llama.service
+Wants=orpheus-llama.service
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+WorkingDirectory=/home/erewhon/Projects/orpheus-fastapi
+
+ExecStart=/home/erewhon/Projects/orpheus-fastapi/.venv/bin/python app.py
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+Environment=ORPHEUS_API_URL=http://127.0.0.1:5398/v1/completions
+Environment=ORPHEUS_PORT=5397
+Environment=ORPHEUS_HOST=0.0.0.0
+Environment=ORPHEUS_MAX_TOKENS=8192
+Environment=ORPHEUS_TEMPERATURE=0.6
+Environment=ORPHEUS_TOP_P=0.9
+Environment=ORPHEUS_MODEL_NAME=orpheus-3b-0.1-ft.Q8_0.gguf
+
+[Install]
+WantedBy=multi-user.target

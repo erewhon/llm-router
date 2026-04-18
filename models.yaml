@@ -61,9 +61,9 @@ models:
     api_port: 1234
     vram_gb: 29
     always_on: true
+    enabled: false
     tool_proxy: true
-    aliases:
-      - research
+    aliases: []
     capabilities:
       - text
       - vision
@@ -84,9 +84,50 @@ models:
       - vision
       - tool_calling
 
-  # --- Default mode: individual models on each Spark ---
+  # --- Default mode: Qwen3.6 on both Sparks ---
 
-  # Coder models — all nothink by default. Use thinker for reasoning.
+  qwen3.6-archimedes:
+    hf_repo: Qwen/Qwen3.6-35B-A3B-FP8
+    backend: vllm
+    node: archimedes
+    api_port: 5391
+    vram_gb: 35
+    always_on: true
+    tool_proxy: true
+    aliases:
+      - thinker
+      - research
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - mode:default
+    vllm_args:
+      tool_call_parser: qwen3_coder
+
+  qwen3.6-hypatia:
+    hf_repo: Qwen/Qwen3.6-35B-A3B-FP8
+    backend: vllm
+    node: hypatia
+    api_port: 5391
+    vram_gb: 35
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - coder
+      - vision
+      - qwen3.6-local
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - mode:default
+    vllm_args:
+      tool_call_parser: qwen3_coder
+
+  # --- Disabled Spark models (available for spark-mode.sh or manual start) ---
 
   qwen3-coder-next-spark:
     hf_repo: Qwen/Qwen3-Coder-Next-FP8
@@ -95,9 +136,9 @@ models:
     api_port: 5391
     vram_gb: 76
     always_on: true
+    enabled: false
     tool_proxy: false
-    aliases:
-      - coder
+    aliases: []
     capabilities:
       - text
       - tool_calling
@@ -149,9 +190,9 @@ models:
     api_port: 1234
     vram_gb: 5
     always_on: true
-    tool_proxy: true
-    aliases:
-      - coder-veryfast
+    enabled: false
+    tool_proxy: false
+    aliases: []
     capabilities:
       - text
       - tool_calling
@@ -165,9 +206,9 @@ models:
     api_port: 5391
     vram_gb: 54
     always_on: true
+    enabled: false
     tool_proxy: false
-    aliases:
-      - thinker
+    aliases: []
     capabilities:
       - text
       - vision
@@ -367,9 +408,9 @@ models:
     api_port: 1234
     vram_gb: 10
     always_on: true
+    enabled: false
     tool_proxy: false
-    aliases:
-      - vision
+    aliases: []
     capabilities:
       - text
       - vision
@@ -407,6 +448,20 @@ models:
       - tool_calling
 
   # --- Utility models (delphi) ---
+
+  qwen2.5-coder-7b-fim:
+    hf_repo: qwen2.5-coder-7b-instruct
+    backend: lmstudio
+    node: delphi
+    api_port: 1234
+    vram_gb: 5
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - coder-fim
+    capabilities:
+      - text
+      - tool_calling
 
   nomic-embed:
     hf_repo: text-embedding-nomic-embed-text-v1.5
@@ -447,6 +502,31 @@ models:
       - audio
     tags:
       - tts
+
+  orpheus-tts:
+    hf_repo: orpheus-3b-0.1-ft
+    backend: external
+    api_base: http://delphi.local:5397
+    always_on: true
+    aliases:
+      - orpheus
+    capabilities:
+      - audio
+    tags:
+      - tts
+
+  flux-schnell:
+    hf_repo: FLUX.1-schnell
+    backend: external
+    api_base: http://delphi.local:5396
+    always_on: true
+    aliases:
+      - image
+      - flux
+    capabilities:
+      - image_gen
+    tags:
+      - image_gen
 
   # --- External models (OpenCode Zen) ---
 

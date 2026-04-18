@@ -220,57 +220,81 @@ class VllmBackend(Backend):
             error=self._errors.get(model_id),
         )
 
-    async def get_request_counts(self, model_id: str) -> tuple[int, int]:
-        """Get (running, waiting) request counts from vLLM /metrics endpoint."""
+    async def _fetch_metrics(self, model_id: str) -> str | None:
+        """Fetch raw Prometheus metrics text from the inference server."""
         port = self._ports.get(model_id, VLLM_PORT)
         try:
             async with httpx.AsyncClient() as client:
                 resp = await client.get(f"http://localhost:{port}/metrics", timeout=3)
-                if resp.status_code != 200:
-                    return 0, 0
-                running = 0
-                waiting = 0
-                for line in resp.text.splitlines():
-                    # Support both vLLM (vllm:) and SGLang (sglang:, sglang_) metric prefixes
-                    if "num_requests_running{" in line and not line.startswith("#"):
-                        running = int(float(line.split()[-1]))
-                    elif "num_requests_waiting{" in line and not line.startswith("#"):
-                        waiting = int(float(line.split()[-1]))
-                return running, waiting
+                if resp.status_code == 200:
+                    return resp.text
         except Exception:
+            pass
+        return None
+
+    async def get_request_counts(self, model_id: str) -> tuple[int, int]:
+        """Get (running, waiting) request counts from /metrics endpoint.
+
+        Supports both vLLM and SGLang metric names:
+        - vLLM: num_requests_running, num_requests_waiting
+        - SGLang: num_running_reqs, num_queue_reqs
+        """
+        text = await self._fetch_metrics(model_id)
+        if not text:
             return 0, 0
+        running = 0
+        waiting = 0
+        for line in text.splitlines():
+            if line.startswith("#"):
+                continue
+            if "num_requests_running{" in line or "num_running_reqs{" in line:
+                running = int(float(line.split()[-1]))
+            elif "num_requests_waiting{" in line or "num_queue_reqs{" in line:
+                waiting = int(float(line.split()[-1]))
+        return running, waiting
 
     async def get_throughput(self, model_id: str) -> dict:
-        """Get throughput stats from vLLM /metrics endpoint."""
-        port = self._ports.get(model_id, VLLM_PORT)
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(f"http://localhost:{port}/metrics", timeout=3)
-                if resp.status_code != 200:
-                    return {}
-                stats: dict = {}
-                for line in resp.text.splitlines():
-                    if line.startswith("vllm:generation_tokens_total{"):
-                        stats["gen_tokens_total"] = int(float(line.split()[-1]))
-                    # Support both vLLM and SGLang metric prefixes
-                    elif "prompt_tokens_total{" in line and not line.startswith("#"):
-                        stats["prompt_tokens_total"] = int(float(line.split()[-1]))
-                    elif "generation_tokens_sum{" in line and "request" in line and not line.startswith("#"):
-                        stats["gen_tokens_sum"] = int(float(line.split()[-1]))
-                    elif "generation_tokens_count{" in line and "request" in line and not line.startswith("#"):
-                        stats["request_count"] = int(float(line.split()[-1]))
-                    elif "time_per_output_token_seconds_sum{" in line and not line.startswith("#"):
-                        stats["time_per_token_sum"] = float(line.split()[-1])
-                    elif "time_per_output_token_seconds_count{" in line and not line.startswith("#"):
-                        stats["time_per_token_count"] = int(float(line.split()[-1]))
-                # Compute average tok/s
-                if stats.get("time_per_token_sum") and stats.get("time_per_token_count"):
-                    avg_time = stats["time_per_token_sum"] / stats["time_per_token_count"]
-                    if avg_time > 0:
-                        stats["avg_tok_per_s"] = round(1.0 / avg_time, 1)
-                return stats
-        except Exception:
+        """Get throughput stats from /metrics endpoint.
+
+        Supports both vLLM and SGLang metrics:
+        - vLLM: time_per_output_token_seconds for avg tok/s
+        - SGLang: gen_throughput gauge (direct tok/s), inter_token_latency_seconds
+        """
+        text = await self._fetch_metrics(model_id)
+        if not text:
             return {}
+        stats: dict = {}
+        for line in text.splitlines():
+            if line.startswith("#"):
+                continue
+            # Token counters (both vLLM and SGLang use these names)
+            if "generation_tokens_total{" in line:
+                stats["gen_tokens_total"] = int(float(line.split()[-1]))
+            elif "prompt_tokens_total{" in line:
+                stats["prompt_tokens_total"] = int(float(line.split()[-1]))
+            elif "num_requests_total{" in line:
+                stats["request_count"] = int(float(line.split()[-1]))
+            # vLLM: time_per_output_token_seconds histogram
+            elif "time_per_output_token_seconds_sum{" in line:
+                stats["time_per_token_sum"] = float(line.split()[-1])
+            elif "time_per_output_token_seconds_count{" in line:
+                stats["time_per_token_count"] = int(float(line.split()[-1]))
+            # SGLang: inter_token_latency_seconds histogram (equivalent)
+            elif "inter_token_latency_seconds_sum{" in line:
+                stats.setdefault("time_per_token_sum", float(line.split()[-1]))
+            elif "inter_token_latency_seconds_count{" in line:
+                stats.setdefault("time_per_token_count", int(float(line.split()[-1])))
+            # SGLang: direct throughput gauge (tok/s)
+            elif "gen_throughput{" in line:
+                stats["gen_throughput"] = float(line.split()[-1])
+        # Compute average tok/s: prefer direct gauge, fall back to histogram
+        if stats.get("gen_throughput"):
+            stats["avg_tok_per_s"] = round(stats["gen_throughput"], 1)
+        elif stats.get("time_per_token_sum") and stats.get("time_per_token_count"):
+            avg_time = stats["time_per_token_sum"] / stats["time_per_token_count"]
+            if avg_time > 0:
+                stats["avg_tok_per_s"] = round(1.0 / avg_time, 1)
+        return stats
 
     async def health_check(self, model_id: str, model: ModelDefinition | None = None) -> bool:
         """Check if vLLM is responding and serving the expected model."""

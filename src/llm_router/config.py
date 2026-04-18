@@ -21,6 +21,7 @@ class ModelCapability(StrEnum):
     TEXT = "text"
     VISION = "vision"
     AUDIO = "audio"
+    IMAGE_GEN = "image_gen"
     TOOL_CALLING = "tool_calling"
 
 

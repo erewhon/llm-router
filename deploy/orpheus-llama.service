@@ -1,0 +1,31 @@
+# systemd unit for Orpheus TTS inference backend (llama.cpp + Vulkan)
+# Install: sudo cp orpheus-llama.service /etc/systemd/system/orpheus-llama.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now orpheus-llama
+
+[Unit]
+Description=Orpheus TTS Inference Backend (llama.cpp Vulkan)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+
+ExecStart=/opt/llama-cpp-vk/llama-server \
+    -m /data/ai/models/orpheus/orpheus-3b-0.1-ft.Q8_0.gguf \
+    --host 127.0.0.1 \
+    --port 5398 \
+    -ngl 999 \
+    --ctx-size 8192 \
+    -n 8192 \
+    --no-webui
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

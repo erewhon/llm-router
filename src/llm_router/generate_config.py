@@ -24,10 +24,14 @@ def _litellm_model_entry(
     else:
         api_key = "not-needed"
 
+    # For tool_proxy models, send model_id (not hf_repo) so the tool proxy
+    # can disambiguate when multiple models share the same hf_repo.
+    model_name_for_backend = model_id if model.tool_proxy else model.hf_repo
+
     entry: dict = {
         "model_name": model_id,
         "litellm_params": {
-            "model": f"openai/{model.hf_repo}",
+            "model": f"openai/{model_name_for_backend}",
             "api_base": api_base,
             "api_key": api_key,
         },

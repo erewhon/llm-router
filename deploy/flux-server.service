@@ -1,0 +1,32 @@
+# systemd unit for Flux.1 image generation server (stable-diffusion.cpp + Vulkan)
+# Install: sudo cp flux-server.service /etc/systemd/system/flux-server.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now flux-server
+
+[Unit]
+Description=Flux.1 Image Generation Server (Vulkan)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+
+ExecStart=/opt/sd-cpp/sd-server \
+    --diffusion-model /data/ai/models/flux/flux1-schnell-Q5_1.gguf \
+    --vae /data/ai/models/flux/ae.safetensors \
+    --clip_l /data/ai/models/flux/clip_l.safetensors \
+    --t5xxl /data/ai/models/flux/t5-v1_1-xxl-encoder-Q8_0.gguf \
+    --cfg-scale 1.0 \
+    --steps 4 \
+    -l 0.0.0.0 \
+    --listen-port 5396
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

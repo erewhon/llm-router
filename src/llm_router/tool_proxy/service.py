@@ -57,15 +57,19 @@ _vllm_url: str = "http://localhost:5391"
 _max_output_tokens: int = 32768
 _max_tool_rounds: int = 5
 _registry: ToolRegistry = ToolRegistry()
-_backend_clients: dict[str, AsyncOpenAI] = {}  # model_name -> client
+_backend_clients: dict[str, AsyncOpenAI] = {}  # backend_url -> client
+_model_hf_repos: dict[str, str] = {}  # model_id -> hf_repo (for name rewriting)
 _model_registry = None  # ModelRegistry for backend resolution
 
 
-def _get_client(model: str = "auto") -> AsyncOpenAI:
-    """Get the OpenAI client for a model, resolving backend URL from registry."""
+def _resolve_model(model: str) -> tuple[AsyncOpenAI, str]:
+    """Resolve a model name to (client, backend_model_name).
+
+    Returns the appropriate backend client and the model name to use
+    when forwarding to the backend (hf_repo, not model_id).
+    """
     if _model_registry is not None and model != "auto":
-        # Check if this model, alias, or hf_repo maps to a different backend
-        # LiteLLM may send "openai/Repo/Name" — strip the prefix
+        # LiteLLM may send "openai/model_id" for tool_proxy models — strip prefix
         model_clean = model.removeprefix("openai/")
         for model_id, mdef in _model_registry.models.items():
             hf_base = mdef.hf_repo.split("#")[0]  # Strip #nothink etc.
@@ -83,9 +87,21 @@ def _get_client(model: str = "auto") -> AsyncOpenAI:
                         base_url=f"{backend_url}/v1", api_key="dummy"
                     )
                     logger.info(f"Created backend client for {model} -> {backend_url}")
-                return _backend_clients[backend_url]
+                return _backend_clients[backend_url], hf_base
     assert _vllm_client is not None, "vLLM client not configured"
-    return _vllm_client
+    return _vllm_client, model
+
+
+def _get_client(model: str = "auto") -> AsyncOpenAI:
+    """Get the OpenAI client for a model, resolving backend URL from registry."""
+    client, _backend_model = _resolve_model(model)
+    return client
+
+
+def _get_backend_model_name(model: str) -> str:
+    """Get the model name to use when forwarding to the backend (hf_repo)."""
+    _client, backend_model = _resolve_model(model)
+    return backend_model
 
 
 async def _try_litellm_stream(
@@ -233,6 +249,8 @@ async def chat_completions(request: Request):
 
     # Strip #nothink suffix — used for routing, not sent to backend
     model = raw_model.split("#")[0] if "#" in raw_model else raw_model
+    # Rewrite model_id to hf_repo for the backend (e.g. "qwen3.6-archimedes" -> "Qwen/Qwen3.6-35B-A3B-FP8")
+    model = _get_backend_model_name(model)
     raw_max_tokens = body.get("max_tokens", 4096)
     max_tokens = min(raw_max_tokens, _max_output_tokens)
     if raw_max_tokens != max_tokens:

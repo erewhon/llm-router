@@ -1,0 +1,26 @@
+# systemd unit for serving .well-known/opencode endpoint
+# Serves static files from /var/lib/opencode-wellknown on port 4012
+# Install: sudo cp opencode-wellknown.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now opencode-wellknown
+
+[Unit]
+Description=OpenCode .well-known Configuration Endpoint
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+WorkingDirectory=/var/lib/opencode-wellknown
+
+ExecStart=/usr/bin/python3 -m http.server 4012 --bind 127.0.0.1
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

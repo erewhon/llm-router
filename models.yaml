@@ -419,15 +419,39 @@ models:
       - mode:default
 
   # --- Auto-router (embedding classifier on delphi tool proxy) ---
+  # Three tiers — all route coding tasks to local coder by default:
+  #   auto:      coder + coder-fim detection
+  #   auto-free: + coder-hard upgrade (free Zen model) for hard tasks
+  #   auto-full: + claude-opus-4-6 upgrade for very hard tasks
 
-  auto-router:
+  auto:
     hf_repo: auto
     backend: external
     api_base: http://delphi.local:5392
     always_on: true
     tool_proxy: false
-    aliases:
-      - auto
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+
+  auto-free:
+    hf_repo: auto-free
+    backend: external
+    api_base: http://delphi.local:5392
+    always_on: true
+    tool_proxy: false
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+
+  auto-full:
+    hf_repo: auto-full
+    backend: external
+    api_base: http://delphi.local:5392
+    always_on: true
+    tool_proxy: false
     capabilities:
       - text
       - vision

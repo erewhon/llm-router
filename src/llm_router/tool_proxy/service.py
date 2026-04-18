@@ -156,9 +156,12 @@ async def chat_completions(request: Request):
     raw_model = body.get("model", "auto")
 
     # Auto-routing: classify prompt and pick the best model
-    if raw_model.removeprefix("openai/") == "auto":
-        from llm_router.tool_proxy.auto_router import classify
-        routed_alias = await classify(messages)
+    _auto_tiers = {"auto": "auto", "auto-free": "auto-free", "auto-full": "auto-full"}
+    stripped_model = raw_model.removeprefix("openai/")
+    if stripped_model in _auto_tiers:
+        from llm_router.tool_proxy.auto_router import AutoTier, classify
+        tier = AutoTier(stripped_model)
+        routed_alias = await classify(messages, tier=tier)
         logger.info(f"Auto-routed to: {routed_alias}")
         # Redirect through LiteLLM with the resolved alias
         body["model"] = routed_alias

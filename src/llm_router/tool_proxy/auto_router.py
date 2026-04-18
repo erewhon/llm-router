@@ -3,19 +3,28 @@
 Classifies incoming prompts and routes to the best model alias
 by comparing the prompt embedding against pre-computed category embeddings.
 
-Two-tier routing (optional): after classifying task type, scores prompt
-complexity to decide whether to upgrade coder → coder-hard (external API).
+Three tiers of auto models, all coding-focused complexity upgrades:
+  - auto:      coder (default), coder-fim (FIM tasks)
+  - auto-free: + coder-hard (hard coding → free Zen model)
+  - auto-full: + claude-opus-4-6 (very hard coding → paid API)
 """
 
 from __future__ import annotations
 
 import logging
-import os
+from enum import Enum
 from typing import Any
 
 import httpx
 
 logger = logging.getLogger("auto-router")
+
+
+class AutoTier(Enum):
+    AUTO = "auto"
+    FREE = "auto-free"
+    FULL = "auto-full"
+
 
 # Category definitions: alias → description used for embedding
 ROUTE_CATEGORIES: dict[str, str] = {
@@ -23,10 +32,10 @@ ROUTE_CATEGORIES: dict[str, str] = {
         "Write code, debug, fix bugs, refactor, implement features, "
         "programming, software development, functions, classes, algorithms"
     ),
-    "coder-veryfast": (
-        "Quick simple question, one-liner, what does this do, "
-        "brief lookup, short answer, trivial task, basic math, "
-        "calculate, how many, definition, what is, simple fact"
+    "coder-fim": (
+        "Fill in the middle, code completion, complete this function, "
+        "autocomplete, insert code here, fill the gap, tab completion, "
+        "inline completion, suggestion, predict next tokens"
     ),
     "thinker": (
         "Explain in depth, analyze, reason about, compare tradeoffs, "
@@ -42,10 +51,9 @@ ROUTE_CATEGORIES: dict[str, str] = {
     ),
 }
 
-# Two-tier complexity routing: upgrade coder → coder-hard for complex tasks
-# Set AUTO_ROUTER_COMPLEXITY=0 to disable
-COMPLEXITY_ROUTING_ENABLED = os.environ.get("AUTO_ROUTER_COMPLEXITY", "1") != "0"
-COMPLEXITY_THRESHOLD = float(os.environ.get("AUTO_ROUTER_COMPLEXITY_THRESHOLD", "0.5"))
+# Complexity thresholds for tiered routing
+HARD_THRESHOLD = 0.45
+VERY_HARD_THRESHOLD = 0.70
 
 COMPLEXITY_KEYWORDS: set[str] = {
     "refactor", "debug", "fix bug", "implement", "migrate",
@@ -130,15 +138,22 @@ async def initialize(embed_url: str = "http://localhost:1234") -> None:
         except Exception as e:
             logger.warning(f"  {alias}: failed to embed — {e}")
 
-    complexity_status = "enabled" if COMPLEXITY_ROUTING_ENABLED else "disabled"
     logger.info(
-        f"Auto-router ready with {len(_category_embeddings)} categories "
-        f"(complexity routing: {complexity_status}, threshold: {COMPLEXITY_THRESHOLD})"
+        f"Auto-router ready with {len(_category_embeddings)} categories, "
+        f"thresholds: hard={HARD_THRESHOLD}, very_hard={VERY_HARD_THRESHOLD}"
     )
 
 
-async def classify(messages: list[dict[str, Any]]) -> str:
-    """Classify a message list and return the best model alias."""
+async def classify(messages: list[dict[str, Any]], tier: AutoTier = AutoTier.AUTO) -> str:
+    """Classify a message list and return the best model alias.
+
+    Routing logic (coding-only complexity upgrades):
+      1. Embedding similarity picks base category (coder, coder-fim, thinker, etc.)
+      2. If base is coder and tier allows, score complexity:
+         - auto-free: complexity >= HARD_THRESHOLD → coder-hard
+         - auto-full: complexity >= VERY_HARD_THRESHOLD → claude-opus-4-6
+                      complexity >= HARD_THRESHOLD → coder-hard
+    """
     if not _category_embeddings:
         logger.warning("Auto-router not initialized, defaulting to coder")
         return "coder"
@@ -185,17 +200,25 @@ async def classify(messages: list[dict[str, Any]]) -> str:
             best_alias = alias
 
     logger.info(
-        f"Auto-route: '{classify_text[:60]}...' -> {best_alias} "
+        f"Auto-route [{tier.value}]: '{classify_text[:60]}...' -> {best_alias} "
         f"({best_score:.3f}) scores={scores}"
     )
 
-    # Two-tier: upgrade coder → coder-hard for complex prompts
-    if COMPLEXITY_ROUTING_ENABLED and best_alias == "coder":
+    # Complexity upgrades (coding tasks only)
+    if best_alias == "coder" and tier in (AutoTier.FREE, AutoTier.FULL):
         complexity = _score_complexity(user_msg)
-        if complexity >= COMPLEXITY_THRESHOLD:
+
+        if tier == AutoTier.FULL and complexity >= VERY_HARD_THRESHOLD:
+            logger.info(
+                f"Complexity upgrade: coder → claude-opus-4-6 "
+                f"(score={complexity:.2f}, threshold={VERY_HARD_THRESHOLD})"
+            )
+            return "claude-opus-4-6"
+
+        if complexity >= HARD_THRESHOLD:
             logger.info(
                 f"Complexity upgrade: coder → coder-hard "
-                f"(score={complexity:.2f}, threshold={COMPLEXITY_THRESHOLD})"
+                f"(score={complexity:.2f}, threshold={HARD_THRESHOLD})"
             )
             return "coder-hard"
 

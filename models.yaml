@@ -391,6 +391,7 @@ models:
     tool_proxy: false
     aliases:
       - coder-fim
+      - coder-fast
     capabilities:
       - text
       - tool_calling
@@ -664,19 +665,6 @@ models:
       - zen
       - free
 
-  mimo-v2-flash-free:
-    hf_repo: mimo-v2-flash-free
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - free
-
   big-pickle:
     hf_repo: big-pickle
     backend: external
@@ -698,7 +686,6 @@ models:
     always_on: true
     aliases:
       - m2.5
-      - coder-hard
     capabilities:
       - text
       - tool_calling
@@ -706,38 +693,23 @@ models:
       - zen
       - free
 
-  qwen3.6-plus-free:
-    hf_repo: qwen3.6-plus-free
+  qwen3.6-plus:
+    hf_repo: qwen3.6-plus
     backend: external
     api_base: https://opencode.ai/zen/v1
     api_key: OPENCODE_ZEN_API_KEY
     always_on: true
     aliases:
-      - qwen3.6
+      - qwen3.6-cloud
     capabilities:
       - text
       - vision
       - tool_calling
     tags:
       - zen
-      - free
-
-  # Paid tier
-  qwen3-coder-480b:
-    hf_repo: qwen3-coder-480b
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    aliases:
-      - coder-480b
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
       - paid
 
+  # Paid tier
   claude-opus-4-6:
     hf_repo: claude-opus-4-6
     backend: external
@@ -801,6 +773,54 @@ models:
     always_on: true
     aliases:
       - k2.5
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  kimi-k2.6:
+    hf_repo: kimi-k2.6
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - k2.6
+      - coder-hard
+      - zen-pro
+      - kimi
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  minimax-m2.7:
+    hf_repo: minimax-m2.7
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - m2.7
+      - zen-fast
+      - mini
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+
+  glm-5.1:
+    hf_repo: glm-5.1
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
     capabilities:
       - text
       - tool_calling

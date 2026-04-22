@@ -39,21 +39,29 @@ NON_CHAT_SUBSTRINGS = (
     "whisper",
     "kokoro",
     "orpheus",
-    "flux",
-    "tts",
-    "stt",
     "acestep",
-    "music",
-    "ui-tars",
-    "image-edit",
-    "qwen-image-edit",
-    "clip",
     "codet5p",
+    "clip",
 )
 
-# Auto-router models wrap other models -- skip to avoid benchmarking
-# the router overhead rather than a real model.
-AUTO_ROUTER_PREFIXES = ("auto", "auto-", "coder-resilient")
+# Exact model IDs to skip — non-chat models, aliases that duplicate
+# a primary model, auto-routers, and utility services.
+SKIP_EXACT = {
+    # Auto-routers
+    "auto", "auto-free", "auto-full", "coder-resilient", "resilient",
+    # Non-chat services
+    "flux", "flux-dev", "image", "image-edit", "edit", "qwen-image-edit",
+    "music", "music-gen", "acestep-music",
+    "tts", "stt", "speak", "transcribe", "kokoro-tts", "orpheus", "orpheus-tts",
+    "whisper-large-v3-turbo",
+    "embedding", "nomic-embed", "reranker", "bge-reranker",
+    "ui-tars", "ui-tars-7b", "gui-agent",
+    # Aliases that duplicate a primary model (avoid benchmarking same backend twice)
+    "coder", "vision", "thinker", "research", "coder-alt",
+    "qwen3.6-local", "qwen3.6", "vision-reasoning", "vl",
+    "nemotron", "m2.5", "m2.7", "k2.5", "k2.6", "coder-hard",
+    "coder-fim", "qwen3.6-cloud",
+}
 
 DEFAULT_PROMPT = (
     "Write a Python async web scraper class with rate limiting, retry logic, "
@@ -85,7 +93,7 @@ class ModelInfo:
 def fetch_models(base_url: str, timeout: float) -> list[ModelInfo]:
     """Fetch the list of models from the LiteLLM proxy."""
     url = base_url.rstrip("/") + "/v1/models"
-    resp = httpx.get(url, timeout=timeout)
+    resp = httpx.get(url, timeout=timeout, headers={"Authorization": "Bearer sk-litellm-master"})
     resp.raise_for_status()
     data = resp.json()
     models: list[ModelInfo] = []
@@ -104,12 +112,9 @@ def should_skip(model: ModelInfo) -> str | None:
     """Return a reason string if this model should be skipped, else None."""
     mid_lower = model.id.lower()
 
-    # Skip auto-routers
-    for prefix in AUTO_ROUTER_PREFIXES:
-        if mid_lower == prefix or mid_lower.startswith(prefix + "-"):
-            # Exact match "auto" or starts with "auto-" / "coder-resilient-"
-            if mid_lower in ("auto", "auto-free", "auto-full", "coder-resilient"):
-                return "auto-router"
+    # Skip exact matches (aliases, non-chat, auto-routers)
+    if mid_lower in SKIP_EXACT:
+        return "skip-listed"
 
     # Skip by known non-chat substrings
     for substr in NON_CHAT_SUBSTRINGS:
@@ -285,7 +290,7 @@ def main() -> None:
     # Create OpenAI client pointed at the proxy
     client = OpenAI(
         base_url=base_url + "/v1",
-        api_key="not-needed",  # LiteLLM proxy doesn't require a key by default
+        api_key="sk-litellm-master",
     )
 
     # Run benchmarks sequentially

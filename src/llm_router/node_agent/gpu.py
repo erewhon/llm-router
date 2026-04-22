@@ -31,17 +31,20 @@ class GpuInfo:
 
 
 def detect_gpu_type() -> GpuType:
-    """Detect whether the system has AMD or NVIDIA GPU."""
+    """Detect whether the system has AMD, NVIDIA, or Intel GPU."""
     if Path("/dev/kfd").exists():
         return GpuType.AMD
     if Path("/dev/nvidia0").exists():
         return GpuType.NVIDIA
+    # Check for Intel dGPU (xe driver)
+    if shutil.which("xpu-smi"):
+        return GpuType.INTEL
     # Fallback: check for nvidia-smi or rocm-smi
     if shutil.which("nvidia-smi"):
         return GpuType.NVIDIA
     if shutil.which("rocm-smi"):
         return GpuType.AMD
-    raise RuntimeError("No GPU detected (no /dev/kfd or /dev/nvidia0)")
+    raise RuntimeError("No GPU detected (no /dev/kfd, /dev/nvidia0, or xpu-smi)")
 
 
 def _get_nvidia_vram() -> tuple[int, int, bool]:
@@ -169,6 +172,82 @@ def _get_amd_vram() -> tuple[int, int, bool]:
     raise RuntimeError("Could not determine AMD GPU memory")
 
 
+def _get_intel_vram() -> tuple[int, int, bool]:
+    """Query Intel GPU memory via xpu-smi. Returns (free_mb, total_mb, unified)."""
+    used_mb = 0
+    total_mb = 0
+
+    # Parse xpu-smi stats text output for memory used
+    result = subprocess.run(
+        ["xpu-smi", "stats", "-d", "0"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if "GPU Memory Used (MiB)" in line:
+                parts = line.split("|")
+                if len(parts) >= 3:
+                    val = parts[2].strip()
+                    if val.isdigit():
+                        used_mb = int(val)
+
+    # Parse xpu-smi discovery for total memory
+    result = subprocess.run(
+        ["xpu-smi", "discovery"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            # Look for memory size in discovery output
+            if "Memory Physical Size" in line:
+                parts = line.split("|")
+                if len(parts) >= 3:
+                    val = parts[2].strip()
+                    # Value is in MiB or bytes depending on version
+                    if "MiB" in val:
+                        total_mb = int(val.replace("MiB", "").strip())
+                    elif val.isdigit():
+                        total_mb = int(val)
+
+    # Fallback: hardcoded for known GPUs if discovery didn't work
+    if total_mb == 0:
+        total_mb = 16384  # Arc B50 Pro = 16GB
+
+    free_mb = total_mb - used_mb
+    if used_mb > 0 or total_mb > 0:
+        return free_mb, total_mb, False
+
+    raise RuntimeError("Could not determine Intel GPU memory")
+
+
+def _get_intel_gpu_busy_pct() -> int | None:
+    """Read Intel GPU utilization from xpu-smi."""
+    try:
+        result = subprocess.run(
+            ["xpu-smi", "stats", "-d", "0"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.splitlines():
+                if "GPU Frequency (MHz)" in line:
+                    parts = line.split("|")
+                    if len(parts) >= 3:
+                        val = parts[2].strip()
+                        if val.isdigit():
+                            # Return frequency as a proxy; real utilization
+                            # requires EU Array Active which may be N/A
+                            return None
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        pass
+    return None
+
+
 def _get_gpu_busy_pct() -> int | None:
     """Read GPU compute utilization from sysfs (amdgpu) or nvidia-smi."""
     # sysfs (amdgpu)
@@ -202,11 +281,13 @@ def _get_gpu_busy_pct() -> int | None:
     return None
 
 
-def get_gpu_info() -> GpuInfo:
+def get_gpu_info(override_type: GpuType | None = None) -> GpuInfo:
     """Detect GPU type and query current memory status."""
-    gpu_type = detect_gpu_type()
+    gpu_type = override_type or detect_gpu_type()
     if gpu_type == GpuType.NVIDIA:
         free_mb, total_mb, unified = _get_nvidia_vram()
+    elif gpu_type == GpuType.INTEL:
+        free_mb, total_mb, unified = _get_intel_vram()
     else:
         free_mb, total_mb, unified = _get_amd_vram()
 

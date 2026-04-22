@@ -23,6 +23,11 @@ nodes:
         type: comfyui
         port: 8188
         label: ComfyUI
+  euclid:
+    host: euclid.local
+    gpu: intel
+    vram_gb: 16  # Arc B50 Pro (Battlemage G21)
+    agent_port: 8100
 
 models:
   gpt-oss-120b:
@@ -87,22 +92,24 @@ models:
   # --- Default mode: Qwen3.6 on both Sparks ---
 
   qwen3.6-archimedes:
-    hf_repo: Qwen/Qwen3.6-35B-A3B-FP8
+    hf_repo: Qwen/Qwen3.6-27B-FP8
     backend: vllm
     node: archimedes
     api_port: 5391
-    vram_gb: 35
+    vram_gb: 27
     always_on: true
     tool_proxy: true
     aliases:
       - thinker
       - research
+      - coder-alt
     capabilities:
       - text
       - vision
       - tool_calling
     tags:
       - mode:default
+      - thinking
     vllm_args:
       tool_call_parser: qwen3_coder
       max_model_len: 262144
@@ -375,18 +382,21 @@ models:
   #     max_model_len: 32768
 
   qwen3-coder-30b-a3b:
-    hf_repo: qwen3-coder-30b-a3b-instruct@q3_k_l
-    backend: lmstudio
+    hf_repo: unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
+    backend: external
     node: delphi
-    api_port: 1234
-    vram_gb: 15
+    api_base: http://delphi.local:5401
+    vram_gb: 16
     always_on: true
-    enabled: false
-    tool_proxy: true
-    aliases: []
+    tool_proxy: false
+    aliases:
+      - coder-fim
     capabilities:
       - text
       - tool_calling
+    tags:
+      - mode:default
+      - fim
 
   qwen3.5-35b-a3b-coder:
     hf_repo: unsloth--qwen3.5-35b-a3b
@@ -403,6 +413,24 @@ models:
       - vision
       - tool_calling
 
+  qwen3-vl-32b-thinking:
+    hf_repo: Qwen/Qwen3-VL-32B-Thinking
+    backend: external
+    node: archimedes
+    api_base: http://archimedes.local:5404
+    vram_gb: 28
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - vision-reasoning
+      - vl
+    capabilities:
+      - text
+      - vision
+    tags:
+      - mode:default
+      - thinking
+
   qwen3-vl-8b:
     hf_repo: qwen3-vl-8b-instruct@q8_0
     backend: lmstudio
@@ -417,8 +445,6 @@ models:
       - text
       - vision
       - tool_calling
-    tags:
-      - mode:default
 
   # --- Auto-router (embedding classifier on delphi tool proxy) ---
   # Three tiers — all route coding tasks to local coder by default:
@@ -482,19 +508,19 @@ models:
     api_port: 1234
     vram_gb: 5
     always_on: true
+    enabled: false
     tool_proxy: false
-    aliases:
-      - coder-fim
+    aliases: []
     capabilities:
       - text
       - tool_calling
 
   nomic-embed:
-    hf_repo: text-embedding-nomic-embed-text-v1.5
-    backend: lmstudio
-    node: delphi
-    api_port: 1234
-    vram_gb: 0
+    hf_repo: nomic-embed-text-v1.5
+    backend: external
+    node: euclid
+    api_base: http://euclid.local:5399/v3
+    vram_gb: 1
     always_on: true
     aliases:
       - embedding
@@ -503,10 +529,26 @@ models:
     tags:
       - embedding
 
+  bge-reranker:
+    hf_repo: bge-reranker-v2-m3
+    backend: external
+    node: euclid
+    api_base: http://euclid.local:5399/v3
+    vram_gb: 1
+    always_on: true
+    aliases:
+      - reranker
+    capabilities:
+      - text
+    tags:
+      - reranker
+
   whisper-large-v3-turbo:
     hf_repo: whisper-large-v3-turbo
     backend: external
-    api_base: http://delphi.local:5394
+    node: euclid
+    api_base: http://euclid.local:5399/v3
+    vram_gb: 1
     always_on: true
     aliases:
       - stt
@@ -519,7 +561,9 @@ models:
   kokoro-tts:
     hf_repo: kokoro-82m
     backend: external
-    api_base: http://delphi.local:5395
+    node: euclid
+    api_base: http://euclid.local:5395
+    vram_gb: 0
     always_on: true
     aliases:
       - tts
@@ -541,10 +585,58 @@ models:
     tags:
       - tts
 
-  flux-schnell:
-    hf_repo: FLUX.1-schnell
+  ui-tars-7b:
+    hf_repo: bytedance/UI-TARS-1.5-7B
     backend: external
+    node: delphi
+    api_base: http://delphi.local:5400
+    vram_gb: 5
+    always_on: true
+    aliases:
+      - gui-agent
+      - ui-tars
+    capabilities:
+      - text
+      - vision
+    tags:
+      - gui_agent
+
+  qwen-image-edit:
+    hf_repo: Qwen/Qwen-Image-Edit
+    backend: external
+    node: hypatia
+    api_base: http://hypatia.local:5402
+    vram_gb: 20
+    always_on: true
+    aliases:
+      - image-edit
+      - edit
+    capabilities:
+      - image_gen
+    tags:
+      - image_edit
+
+  acestep-music:
+    hf_repo: ACE-Step/ACE-Step-v1.5
+    backend: external
+    node: hypatia
+    api_base: http://hypatia.local:5403
+    vram_gb: 8
+    always_on: true
+    aliases:
+      - music
+      - music-gen
+    capabilities:
+      - audio
+    tags:
+      - music_gen
+
+  flux-dev:
+    hf_repo: FLUX.1-dev
+    backend: external
+    node: delphi
     api_base: http://delphi.local:5396
+    vram_gb: 23
     always_on: true
     aliases:
       - image

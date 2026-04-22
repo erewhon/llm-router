@@ -1,0 +1,31 @@
+# systemd unit for UI-TARS 1.5 7B GUI Agent (llama.cpp Vulkan)
+# Install: sudo cp ui-tars.service /etc/systemd/system/ui-tars.service
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now ui-tars
+
+[Unit]
+Description=UI-TARS 1.5 7B GUI Agent (llama.cpp Vulkan)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+
+ExecStart=/opt/llama-cpp-vk/llama-server \
+    -m /data/ai/models/ui-tars/UI-TARS-1.5-7B.Q5_K_M.gguf \
+    --mmproj /data/ai/models/ui-tars/UI-TARS-1.5-7B.mmproj-Q8_0.gguf \
+    --host 0.0.0.0 \
+    --port 5400 \
+    -ngl 999 \
+    --ctx-size 16384 \
+    --no-webui
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

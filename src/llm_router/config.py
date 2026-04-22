@@ -28,6 +28,7 @@ class ModelCapability(StrEnum):
 class GpuType(StrEnum):
     AMD = "amd"
     NVIDIA = "nvidia"
+    INTEL = "intel"
 
 
 class ServiceType(StrEnum):

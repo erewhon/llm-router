@@ -90,7 +90,7 @@ UMask=0077
 
 # --- Network isolation ---
 # Only allow localhost, LAN (node-to-node communication), deny everything else
-IPAddressAllow=127.0.0.0/8 ::1/128 192.168.42.0/24
+IPAddressAllow=127.0.0.0/8 ::1/128 192.168.42.0/24 172.16.0.0/12 100.64.0.0/10
 IPAddressDeny=any
 
 [Install]

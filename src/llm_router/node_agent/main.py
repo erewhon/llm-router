@@ -63,6 +63,10 @@ async def lifespan(app: FastAPI):
     assert _registry is not None
     node_models = _registry.models_for_node(_node_name)
     for model_id, model in node_models.items():
+        if model.backend == BackendType.EXTERNAL:
+            # External models are managed outside the node agent (e.g. OVMS, Docker)
+            logger.info(f"Skipping external model: {model_id}")
+            continue
         if model.always_on and model.mode_tag is None:
             # Only auto-start models without a mode tag.
             # Mode-tagged models (mode:big, mode:default) are managed by spark-mode.sh.
@@ -82,6 +86,11 @@ app = FastAPI(title="LLM Router Node Agent", lifespan=lifespan)
 async def start_model(model_id: str, req: ModelStartRequest | None = None) -> ModelStatusResponse:
     """Start an inference backend for a model."""
     model_id, model = _get_model(model_id)
+    if model.backend == BackendType.EXTERNAL:
+        return ModelStatusResponse(
+            model_id=model_id, state=ModelState.RUNNING, backend=model.backend.value,
+            hf_repo=model.hf_repo,
+        )
     backend = _get_backend(model.backend)
 
     status = await backend.status(model_id, model=model)
@@ -113,6 +122,11 @@ async def start_model(model_id: str, req: ModelStartRequest | None = None) -> Mo
 async def stop_model(model_id: str) -> ModelStatusResponse:
     """Stop an inference backend for a model."""
     model_id, model = _get_model(model_id)
+    if model.backend == BackendType.EXTERNAL:
+        return ModelStatusResponse(
+            model_id=model_id, state=ModelState.RUNNING, backend=model.backend.value,
+            hf_repo=model.hf_repo,
+        )
     backend = _get_backend(model.backend)
 
     await backend.stop(model_id)
@@ -130,6 +144,16 @@ async def stop_model(model_id: str) -> ModelStatusResponse:
 async def model_status(model_id: str) -> ModelStatusResponse:
     """Get the status of a model's inference backend."""
     model_id, model = _get_model(model_id)
+    if model.backend == BackendType.EXTERNAL:
+        return ModelStatusResponse(
+            model_id=model_id,
+            state=ModelState.RUNNING,
+            pid=None,
+            port=None,
+            backend=model.backend.value,
+            hf_repo=model.hf_repo,
+            error=None,
+        )
     backend = _get_backend(model.backend)
     status = await backend.status(model_id, model=model)
 
@@ -151,6 +175,22 @@ async def list_models() -> list[ModelListEntry]:
     node_models = _registry.models_for_node(_node_name)
     entries = []
     for model_id, model in node_models.items():
+        if model.backend == BackendType.EXTERNAL:
+            entries.append(
+                ModelListEntry(
+                    model_id=model_id,
+                    state=ModelState.RUNNING,
+                    hf_repo=model.hf_repo,
+                    backend=model.backend.value,
+                    always_on=model.always_on,
+                    vram_gb=model.vram_gb,
+                    requests_running=0,
+                    requests_waiting=0,
+                    avg_tok_per_s=None,
+                    total_requests=0,
+                )
+            )
+            continue
         backend = _get_backend(model.backend)
         status = await backend.status(model_id, model=model)
         running, waiting = (0, 0)
@@ -186,6 +226,9 @@ async def health() -> NodeHealthResponse:
 
     running = []
     for model_id, model in node_models.items():
+        if model.backend == BackendType.EXTERNAL:
+            running.append(model_id)
+            continue
         backend = _get_backend(model.backend)
         status = await backend.status(model_id, model=model)
         if status.state == ModelState.RUNNING:
@@ -198,7 +241,11 @@ async def health() -> NodeHealthResponse:
     try:
         from llm_router.node_agent.gpu import get_gpu_info
 
-        info = get_gpu_info()
+        # Use the configured GPU type from the registry to avoid
+        # misdetection on multi-GPU systems (e.g. AMD iGPU + Intel dGPU)
+        node_def = _registry.nodes.get(_node_name)
+        configured_gpu = node_def.gpu if node_def else None
+        info = get_gpu_info(override_type=configured_gpu)
         gpu_type = info.gpu_type.value
         total_vram = info.total_vram_gb
         free_vram = info.free_vram_gb

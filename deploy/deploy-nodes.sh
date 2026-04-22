@@ -13,7 +13,7 @@ PROJ="/home/erewhon/Projects/erewhon/llm-router"
 RSYNC_OPTS=(-av --delete --exclude='.git' --exclude='__pycache__' --exclude='.venv')
 
 # GPU nodes run node agents
-AGENT_NODES=(archimedes.local hypatia.local)
+AGENT_NODES=(archimedes.local hypatia.local euclid.local)
 # delphi is localhost
 DELPHI_IS_LOCAL=true
 

@@ -14,12 +14,12 @@ User=erewhon
 Group=erewhon
 
 ExecStart=/opt/sd-cpp/sd-server \
-    --diffusion-model /data/ai/models/flux/flux1-schnell-Q5_1.gguf \
+    --diffusion-model /data/ai/models/flux/flux1-dev-q8_0.gguf \
     --vae /data/ai/models/flux/ae.safetensors \
     --clip_l /data/ai/models/flux/clip_l.safetensors \
     --t5xxl /data/ai/models/flux/t5-v1_1-xxl-encoder-Q8_0.gguf \
     --cfg-scale 1.0 \
-    --steps 4 \
+    --steps 25 \
     -l 0.0.0.0 \
     --listen-port 5396
 

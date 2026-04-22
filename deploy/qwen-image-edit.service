@@ -1,0 +1,36 @@
+# systemd unit for Qwen-Image-Edit server (stable-diffusion.cpp CUDA)
+# Deploy to: hypatia
+# Install: sudo cp qwen-image-edit.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now qwen-image-edit
+
+[Unit]
+Description=Qwen-Image-Edit Server (sd-cpp CUDA)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erewhon
+Group=erewhon
+Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
+
+ExecStart=/opt/sd-cpp-cuda/sd-server \
+    --diffusion-model /home/erewhon/models/qwen-image-edit/qwen-image-edit-2511-Q4_K_M.gguf \
+    --vae /home/erewhon/models/qwen-image-edit/qwen_image_vae.safetensors \
+    --llm /home/erewhon/models/qwen-image-edit/Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf \
+    --llm_vision /home/erewhon/models/qwen-image-edit/Qwen2.5-VL-7B-Instruct-mmproj-BF16.gguf \
+    --cfg-scale 2.5 \
+    --sampling-method euler \
+    --diffusion-fa \
+    --flow-shift 3 \
+    -l 0.0.0.0 \
+    --listen-port 5402
+
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

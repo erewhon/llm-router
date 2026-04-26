@@ -664,6 +664,8 @@ models:
     tags:
       - zen
       - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
 
   big-pickle:
     hf_repo: big-pickle
@@ -677,6 +679,8 @@ models:
     tags:
       - zen
       - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
 
   minimax-m2.5-free:
     hf_repo: minimax-m2.5-free
@@ -692,6 +696,8 @@ models:
     tags:
       - zen
       - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
 
   qwen3.6-plus:
     hf_repo: qwen3.6-plus
@@ -708,6 +714,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 0.50
+    output_cost_per_million: 3.00
 
   # Paid tier
   claude-opus-4-6:
@@ -723,6 +731,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 5.00
+    output_cost_per_million: 25.00
 
   claude-sonnet-4-6:
     hf_repo: claude-sonnet-4-6
@@ -737,6 +747,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 3.00
+    output_cost_per_million: 15.00
 
   claude-haiku-4-5:
     hf_repo: claude-haiku-4-5
@@ -751,6 +763,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 1.00
+    output_cost_per_million: 5.00
 
   glm-5:
     hf_repo: glm-5
@@ -764,6 +778,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 1.00
+    output_cost_per_million: 3.20
 
   kimi-k2.5:
     hf_repo: kimi-k2.5
@@ -779,6 +795,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 0.60
+    output_cost_per_million: 3.00
 
   kimi-k2.6:
     hf_repo: kimi-k2.6
@@ -797,6 +815,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 0.95
+    output_cost_per_million: 4.00
 
   minimax-m2.7:
     hf_repo: minimax-m2.7
@@ -814,6 +834,8 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 0.30
+    output_cost_per_million: 1.20
 
   glm-5.1:
     hf_repo: glm-5.1
@@ -827,3 +849,5 @@ models:
     tags:
       - zen
       - paid
+    input_cost_per_million: 1.40
+    output_cost_per_million: 4.40

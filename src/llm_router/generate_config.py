@@ -56,6 +56,16 @@ def _litellm_model_entry(
                 if model.multi_node
                 else {}
             ),
+            **(
+                {"input_cost_per_token": model.input_cost_per_million / 1_000_000}
+                if model.input_cost_per_million
+                else {}
+            ),
+            **(
+                {"output_cost_per_token": model.output_cost_per_million / 1_000_000}
+                if model.output_cost_per_million
+                else {}
+            ),
         },
     }
     return entry
@@ -81,7 +91,7 @@ def generate_litellm_config(registry: ModelRegistry, *, mode: str | None = None)
         "litellm_settings": {
             "drop_params": True,
             "request_timeout": 600,
-            "success_callback": ["prometheus"],
+            "success_callback": ["prometheus", "db"],
         },
         "general_settings": {
             "database_url": "postgresql://litellm:litellm-local@127.0.0.1:5432/litellm",

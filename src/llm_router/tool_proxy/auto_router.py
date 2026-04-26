@@ -11,8 +11,11 @@ Three tiers of auto models, all coding-focused complexity upgrades:
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -65,6 +68,36 @@ COMPLEXITY_KEYWORDS: set[str] = {
 # Cached category embeddings (computed at startup)
 _category_embeddings: dict[str, list[float]] | None = None
 _embed_url: str = ""
+
+# JSONL decision log
+_log_path: Path = Path("/var/log/llm-router/auto-router-decisions.jsonl")
+
+
+def _log_decision(
+    tier: str,
+    prompt_snippet: str,
+    base_alias: str,
+    final_alias: str,
+    scores: dict[str, float],
+    complexity: float | None = None,
+) -> None:
+    """Append a routing decision to the JSONL log."""
+    try:
+        _log_path.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+            "tier": tier,
+            "prompt": prompt_snippet[:200],
+            "base": base_alias,
+            "final": final_alias,
+            "scores": scores,
+        }
+        if complexity is not None:
+            entry["complexity"] = round(complexity, 3)
+        with _log_path.open("a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to write decision log: {e}")
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -213,6 +246,9 @@ async def classify(messages: list[dict[str, Any]], tier: AutoTier = AutoTier.AUT
                 f"Complexity upgrade: coder → claude-opus-4-6 "
                 f"(score={complexity:.2f}, threshold={VERY_HARD_THRESHOLD})"
             )
+            _log_decision(
+                tier.value, classify_text, best_alias, "claude-opus-4-6", scores, complexity,
+            )
             return "claude-opus-4-6"
 
         if complexity >= HARD_THRESHOLD:
@@ -220,6 +256,8 @@ async def classify(messages: list[dict[str, Any]], tier: AutoTier = AutoTier.AUT
                 f"Complexity upgrade: coder → coder-hard "
                 f"(score={complexity:.2f}, threshold={HARD_THRESHOLD})"
             )
+            _log_decision(tier.value, classify_text, best_alias, "coder-hard", scores, complexity)
             return "coder-hard"
 
+    _log_decision(tier.value, classify_text, best_alias, best_alias, scores)
     return best_alias

@@ -100,6 +100,10 @@ class ModelDefinition(BaseModel):
     api_base: str | None = None
     api_key: str | None = None  # env var name or literal key
 
+    # Pricing per million tokens (for spend tracking)
+    input_cost_per_million: float | None = None
+    output_cost_per_million: float | None = None
+
     @model_validator(mode="after")
     def validate_node_or_multi(self) -> "ModelDefinition":
         if self.backend == BackendType.EXTERNAL:

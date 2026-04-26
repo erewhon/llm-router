@@ -314,7 +314,32 @@ DASHBOARD_HTML = """\
     min-width: 200px;
     flex: 1;
   }
+  .node-card { cursor: pointer; transition: border-color 0.2s; }
+  .node-card:hover { border-color: var(--accent); }
+  .node-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
   .node-name { font-weight: 600; margin-bottom: 0.5rem; }
+
+  .filter-bar {
+    display: flex; gap: 0.4rem; flex-wrap: wrap;
+    margin-bottom: 0.75rem; align-items: center;
+  }
+  .filter-chip {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.25rem 0.6rem; border-radius: 12px;
+    font-size: 0.7rem; font-weight: 500;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-dim); cursor: pointer;
+    transition: all 0.2s; user-select: none;
+  }
+  .filter-chip:hover { border-color: var(--accent); color: var(--text); }
+  .filter-chip.active { background: rgba(108, 140, 255, 0.15); border-color: var(--accent); color: var(--accent); }
+  .filter-chip .count { opacity: 0.6; }
+  .clear-btn {
+    font-size: 0.7rem; color: var(--text-dim); cursor: pointer;
+    background: none; border: none; padding: 0.25rem 0.4rem;
+    text-decoration: underline;
+  }
+  .clear-btn:hover { color: var(--accent); }
   .node-detail { font-size: 0.8rem; color: var(--text-dim); }
   .node-detail span { color: var(--text); }
 
@@ -391,6 +416,13 @@ DASHBOARD_HTML = """\
     margin: 0.1rem 0.15rem;
   }
   .badge-backend { background: rgba(108, 140, 255, 0.15); color: var(--accent); }
+  .badge-router { background: rgba(251, 191, 36, 0.18); color: var(--yellow); }
+  .badge-ovms { background: rgba(0, 180, 216, 0.18); color: #00b4d8; }
+  .badge-tts { background: rgba(192, 132, 252, 0.15); color: #c084fc; }
+  .badge-image { background: rgba(251, 146, 60, 0.15); color: var(--orange); }
+  .badge-music { background: rgba(244, 114, 182, 0.15); color: #f472b6; }
+  .badge-stt { background: rgba(45, 212, 191, 0.15); color: #2dd4bf; }
+  .badge-embed { background: rgba(0, 180, 216, 0.15); color: #00b4d8; }
   .badge-alias { background: rgba(139, 143, 163, 0.15); color: var(--text-dim); }
   .badge-cap { background: rgba(74, 222, 128, 0.12); color: var(--green); }
   .badge-on { background: rgba(74, 222, 128, 0.15); color: var(--green); }
@@ -565,10 +597,48 @@ function sparklineSvg(vals, color) {
 }
 
 let showHidden = false;
+let selectedNode = null;
+let selectedCaps = new Set();
+
 function toggleHidden(checked) {
   showHidden = checked;
-  document.querySelectorAll('tr.hidden-row').forEach(tr => {
-    tr.style.display = checked ? '' : 'none';
+  applyFilters();
+}
+
+function selectNode(name) {
+  selectedNode = selectedNode === name ? null : name;
+  document.getElementById('content').innerHTML = render(lastData);
+}
+
+function toggleCap(cap) {
+  if (selectedCaps.has(cap)) selectedCaps.delete(cap);
+  else selectedCaps.add(cap);
+  document.getElementById('content').innerHTML = render(lastData);
+}
+
+function clearFilters() {
+  selectedNode = null;
+  selectedCaps.clear();
+  document.getElementById('content').innerHTML = render(lastData);
+}
+
+function applyFilters() {
+  document.querySelectorAll('tr[data-model]').forEach(tr => {
+    const node = tr.dataset.nodes || '';
+    const caps = (tr.dataset.caps || '').split(',');
+    const tags = (tr.dataset.tags || '').split(',');
+    const isDisabled = tr.classList.contains('disabled');
+
+    let visible = true;
+    if (isDisabled && !showHidden) visible = false;
+    if (selectedNode && !node.split(',').includes(selectedNode))
+      visible = false;
+    if (selectedCaps.size > 0) {
+      const all = [...caps, ...tags];
+      const match = [...selectedCaps].some(c => all.includes(c));
+      if (!match) visible = false;
+    }
+    tr.style.display = visible ? '' : 'none';
   });
 }
 
@@ -586,13 +656,47 @@ function vramBarColor(pct) {
   return 'green';
 }
 
+function modelType(m) {
+  // Determine display type for a model
+  const id = m.id, tags = m.tags || [], caps = m.capabilities || [];
+  const isRouter = ['auto','auto-free','auto-full','coder-resilient'].includes(id);
+  if (isRouter) return { label: 'router', badge: 'badge-router' };
+  if (tags.includes('embedding') || tags.includes('reranker'))
+    return { label: m.backend === 'external' && m.nodes.includes('euclid') ? 'ovms' : m.backend, badge: 'badge-embed' };
+  if (tags.includes('stt'))
+    return { label: m.backend === 'external' && m.nodes.includes('euclid') ? 'ovms' : m.backend, badge: 'badge-stt' };
+  if (tags.includes('tts'))
+    return { label: 'tts', badge: 'badge-tts' };
+  if (tags.includes('image_gen') || tags.includes('image_edit'))
+    return { label: 'image', badge: 'badge-image' };
+  if (tags.includes('music_gen'))
+    return { label: 'music', badge: 'badge-music' };
+  if (tags.includes('gui_agent'))
+    return { label: 'gui-agent', badge: 'badge-router' };
+  return { label: m.backend, badge: 'badge-backend' };
+}
+
+function isRouterModel(m) {
+  return ['auto','auto-free','auto-full','coder-resilient'].includes(m.id);
+}
+
 function render(data) {
   const { nodes, models, model_count, node_count, litellm_url, node_metrics } = data;
   const nm = node_metrics || {};
 
   // Stats
-  const alwaysOn = models.filter(m => m.always_on).length;
+  const alwaysOn = models.filter(m => m.always_on && m.enabled !== false).length;
   const healthy = models.filter(m => m.health === 'healthy' || m.health === 'routed').length;
+
+  // Fleet VRAM totals
+  let fleetVramTotal = 0, fleetVramUsed = 0;
+  for (const [name, m] of Object.entries(nm)) {
+    if (m.reachable && m.vram_total_gb) {
+      fleetVramTotal += m.vram_total_gb;
+      fleetVramUsed += m.vram_used_gb || 0;
+    }
+  }
+
   let html = `
     <div class="stats">
       <div class="stat">
@@ -607,6 +711,9 @@ function render(data) {
       <div class="stat">
         <div class="stat-value">${healthy}</div>
         <div class="stat-label">Healthy</div></div>
+      <div class="stat">
+        <div class="stat-value">${fleetVramUsed.toFixed(0)}<span style="font-size:0.9rem;color:var(--text-dim)"> / ${fleetVramTotal.toFixed(0)} GB</span></div>
+        <div class="stat-label">Fleet VRAM</div></div>
     </div>`;
 
   // Connection info
@@ -645,41 +752,44 @@ function render(data) {
       </div>
     </div>`;
 
-  // Alias descriptions
+  // Quick-launch app links
+  html += `
+    <div class="section-title">Apps</div>
+    <div class="nodes">
+      <div class="node-card" style="cursor:default; display:flex; gap:1rem; flex-wrap:wrap; align-items:center; padding:0.75rem 1.25rem">
+        <a href="http://euclid.local:4010/ui" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">LiteLLM Admin</a>
+        <a href="https://grafana.peacock-bramble.ts.net" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">Grafana</a>
+        <a href="http://hypatia.local:5403" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ACE-Step Music</a>
+        <a href="http://hypatia.local:8188" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ComfyUI</a>
+      </div>
+    </div>`;
+
+  // Alias descriptions — auto-generated from enabled models with aliases
+  const aliasItems = [];
+  for (const m of models) {
+    if (m.enabled === false || isRouterModel(m)) continue;
+    for (const a of m.aliases) {
+      aliasItems.push({ name: a, model: m.id, type: modelType(m).label });
+    }
+  }
   html += `
     <div class="section-title">Model Aliases</div>
-    <div class="alias-list" style="grid-template-columns: repeat(4, 1fr)">
-      <div class="alias-item">
-        <span class="alias-name">coder</span>
-        <span class="alias-desc">Code generation and debugging</span>
-      </div>
-      <div class="alias-item">
-        <span class="alias-name">thinker</span>
-        <span class="alias-desc">Reasoning and problem solving</span>
-      </div>
-      <div class="alias-item">
-        <span class="alias-name">research</span>
-        <span class="alias-desc">Web search via VPN (27B dense)</span>
-      </div>
-      <div class="alias-item">
-        <span class="alias-name">vision</span>
-        <span class="alias-desc">Image understanding</span>
-      </div>
-      <div class="alias-item">
-        <span class="alias-name">coder-veryfast</span>
-        <span class="alias-desc">AI grep (4B, no thinking)</span>
-      </div>
-      <div class="alias-item" style="opacity: 0"></div>
-      <div class="alias-item" style="opacity: 0"></div>
-      <div class="alias-item" style="opacity: 0"></div>
+    <div class="alias-list" style="grid-template-columns: repeat(4, 1fr)">`;
+  for (const a of aliasItems) {
+    html += `<div class="alias-item">
+      <span class="alias-name">${a.name}</span>
+      <span class="alias-desc">${a.model}</span>
     </div>`;
+  }
+  html += `</div>`;
 
   // Nodes
   html += `<div class="section-title">Nodes</div><div class="nodes">`;
   for (const [name, n] of Object.entries(nodes)) {
     const m = nm[name] || {};
     const reachable = m.reachable === true;
-    html += `<div class="node-card">
+    const isActive = selectedNode === name;
+    html += `<div class="node-card${isActive ? ' active' : ''}" onclick="selectNode('${name}')">
         <div class="node-name">${name}</div>
         <div class="node-detail">Host: <span>${n.host}</span></div>
         <div class="node-detail">GPU: <span>${n.gpu.toUpperCase()}</span>
@@ -774,6 +884,32 @@ function render(data) {
   // Models table
   const hiddenCount = models.filter(m => m.enabled === false || m.agent_state === 'stopped').length;
   html += `<div class="section-title">Models</div>`;
+
+  // Capability/tag filter chips
+  const capCounts = {}, tagCounts = {};
+  const showTags = ['tts','stt','image_gen','image_edit','music_gen','fim','gui_agent','embedding','reranker','thinking','zen'];
+  for (const m of models) {
+    if (m.enabled === false) continue;
+    for (const c of m.capabilities) { capCounts[c] = (capCounts[c] || 0) + 1; }
+    for (const t of m.tags) { if (showTags.includes(t)) tagCounts[t] = (tagCounts[t] || 0) + 1; }
+  }
+  const hasFilters = selectedNode || selectedCaps.size > 0;
+  const allChips = [
+    ...Object.entries(capCounts).map(([k,v]) => [k,v]),
+    ...Object.entries(tagCounts).map(([k,v]) => [k,v]),
+  ].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  html += `<div class="filter-bar">`;
+  for (const [label, n] of allChips) {
+    const active = selectedCaps.has(label) ? ' active' : '';
+    html += `<span class="filter-chip${active}"` +
+      ` onclick="toggleCap('${label}')">${label}` +
+      ` <span class="count">${n}</span></span>`;
+  }
+  if (hasFilters) {
+    html += `<button class="clear-btn" onclick="clearFilters()">clear filters</button>`;
+  }
+  html += `</div>`;
+
   if (hiddenCount > 0) {
     html += `<div class="toggle-row">
       <input type="checkbox" id="show-hidden" ${showHidden ? 'checked' : ''} onchange="toggleHidden(this.checked)">
@@ -803,8 +939,12 @@ function render(data) {
     if (m.tags) m.tags.forEach(t => { flags += `<span class="badge badge-tag">${t}</span> `; });
 
     // Determine status: prefer agent_state when available, fall back to LiteLLM health
+    // Router models (auto, resilient) don't have backends to health-check
     let statusClass, statusLabel;
-    if (m.agent_state) {
+    if (isRouterModel(m)) {
+      statusClass = 'health-healthy';
+      statusLabel = 'router';
+    } else if (m.agent_state) {
       statusClass = `health-${m.agent_state}`;
       statusLabel = m.agent_state;
     } else {
@@ -847,12 +987,25 @@ function render(data) {
     }
 
     const isHidden = m.enabled === false || m.agent_state === 'stopped';
-    const hideRow = isHidden && !showHidden;
-    const rowClass = isHidden ? ` class="disabled hidden-row"${hideRow ? ' style="display:none"' : ''}` : '';
-    html += `<tr${rowClass}>
+    const nodeList = m.nodes.length > 0 ? m.nodes.join(',') : 'external';
+    const capList = m.capabilities.join(',');
+    const tagList = (m.tags || []).join(',');
+
+    // Visibility: check disabled, node filter, cap filter
+    let visible = true;
+    if (isHidden && !showHidden) visible = false;
+    if (selectedNode && !m.nodes.includes(selectedNode))
+      visible = false;
+    if (selectedCaps.size > 0) {
+      const all = [...m.capabilities, ...(m.tags || [])];
+      if (![...selectedCaps].some(c => all.includes(c))) visible = false;
+    }
+
+    const classes = [isHidden ? 'disabled' : ''].filter(Boolean).join(' ');
+    html += `<tr data-model="${m.id}" data-nodes="${nodeList}" data-caps="${capList}" data-tags="${tagList}"${classes ? ` class="${classes}"` : ''}${!visible ? ' style="display:none"' : ''}>
       <td><div class="model-id">${m.id}</div><div class="model-repo">${m.hf_repo.split('#')[0]}</div>
         ${m.gguf_file ? `<div class="model-repo">${m.gguf_file}</div>` : ''}</td>
-      <td><span class="badge badge-backend">${m.backend}</span>${(() => {
+      <td><span class="badge ${modelType(m).badge}">${modelType(m).label}</span>${(() => {
         const repo = m.hf_repo.split('#')[0].toLowerCase();
         if (repo.includes('fp8')) return ' <span class="badge badge-tag">FP8</span>';
         if (repo.includes('fp16')) return ' <span class="badge badge-tag">FP16</span>';

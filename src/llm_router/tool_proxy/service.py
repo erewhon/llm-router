@@ -268,20 +268,45 @@ async def chat_completions(request: Request):
 
     # Pass through extra_body for backend-specific params (e.g. chat_template_kwargs)
     extra_body: dict[str, Any] = {}
-    if "chat_template_kwargs" in body:
-        extra_body["chat_template_kwargs"] = body["chat_template_kwargs"]
-    # Check for nothink tag — disables thinking and skips proxy tool injection
+    client_chat_template_kwargs = body.get("chat_template_kwargs") or {}
+    if client_chat_template_kwargs:
+        extra_body["chat_template_kwargs"] = dict(client_chat_template_kwargs)
+    # Resolve the request's model to a registry entry. Track which alias matched
+    # so we can apply per-alias overrides (e.g. enable_thinking on `thinker` but
+    # not on `coder-alt`, even though both alias the same backend model).
     is_nothink = False
     if _model_registry is not None:
         raw_clean = raw_model.removeprefix("openai/")
         for mid, mdef in _model_registry.models.items():
+            # Disabled entries (e.g. revert-path stubs) can still claim aliases
+            # — skip them so we resolve to the live model.
+            if not mdef.enabled:
+                continue
             hf_base = mdef.hf_repo.split("#")[0]
-            if mid == raw_clean or raw_clean in mdef.aliases or hf_base == raw_clean or mdef.hf_repo == raw_clean:
-                if "nothink" in mdef.tags:
-                    is_nothink = True
-                    extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
-                    logger.info(f"Disabled thinking for {raw_model} (nothink tag)")
-                break
+            matched_alias: str | None = None
+            if mid == raw_clean:
+                matched_alias = mid
+            elif raw_clean in mdef.aliases:
+                matched_alias = raw_clean
+            elif hf_base == raw_clean or mdef.hf_repo == raw_clean:
+                matched_alias = mid  # model-level match — use the canonical id
+            if matched_alias is None:
+                continue
+            # Apply per-alias chat_template_kwargs defaults (client wins per key)
+            override = mdef.alias_overrides.get(matched_alias)
+            if override and override.chat_template_kwargs:
+                merged = dict(override.chat_template_kwargs)
+                merged.update(client_chat_template_kwargs)
+                extra_body["chat_template_kwargs"] = merged
+                logger.info(
+                    f"Applied alias_override for {matched_alias}: "
+                    f"{override.chat_template_kwargs}"
+                )
+            if "nothink" in mdef.tags:
+                is_nothink = True
+                extra_body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
+                logger.info(f"Disabled thinking for {raw_model} (nothink tag)")
+            break
     if extra_body:
         extra_kwargs["extra_body"] = extra_body
 
@@ -700,6 +725,8 @@ def create_app(
     vllm_url: str = "http://localhost:5391",
     tavily_key: str | None = None,
     proxy: str | None = None,
+    embed_url: str = "http://192.168.42.240:5404",
+    embed_model: str = "qwen3-embedding-4b",
 ) -> FastAPI:
     """Configure and return the FastAPI app."""
     global _vllm_client, _vllm_url, _max_output_tokens, _registry, _model_registry
@@ -741,7 +768,18 @@ def create_app(
     async def _init_auto_router():
         try:
             from llm_router.tool_proxy.auto_router import initialize
-            await initialize(embed_url=vllm_url)  # LMStudio on same host
+            active_aliases: set[str] | None = None
+            if _model_registry is not None:
+                active_aliases = set()
+                for mid, m in _model_registry.models.items():
+                    if m.enabled:
+                        active_aliases.add(mid)
+                        active_aliases.update(m.aliases or [])
+            await initialize(
+                embed_url=embed_url,
+                embed_model=embed_model,
+                active_aliases=active_aliases,
+            )
         except Exception as e:
             logger.warning(f"Auto-router init failed: {e} — 'auto' model will default to coder")
 
@@ -750,20 +788,23 @@ def create_app(
 
 @click.command()
 @click.option("--port", type=int, default=5392, help="Bind port")
-@click.option("--vllm-url", default="http://localhost:5391", help="vLLM backend URL")
+@click.option("--vllm-url", default="http://localhost:5391", help="vLLM backend URL (used for /v1/models passthrough and max_model_len)")
+@click.option("--embed-url", default="http://192.168.42.240:5404", help="Embedding backend URL for the auto-router")
+@click.option("--embed-model", default="qwen3-embedding-4b", help="Embedding model id served by --embed-url")
 @click.option("--host", default="0.0.0.0", help="Bind address")
 @click.option("--tavily-key", default=None, help="Tavily API key")
 @click.option("--proxy", default=None, help="SOCKS5/HTTP proxy for outbound tool requests (e.g. socks5://host:1080)")
-def cli(port: int, vllm_url: str, host: str, tavily_key: str | None, proxy: str | None) -> None:
+def cli(port: int, vllm_url: str, embed_url: str, embed_model: str, host: str, tavily_key: str | None, proxy: str | None) -> None:
     """Start the tool-calling proxy."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
 
-    create_app(vllm_url=vllm_url, tavily_key=tavily_key, proxy=proxy)
+    create_app(vllm_url=vllm_url, tavily_key=tavily_key, proxy=proxy, embed_url=embed_url, embed_model=embed_model)
     logger.info(f"Starting tool proxy on {host}:{port}")
     logger.info(f"vLLM backend: {vllm_url}")
+    logger.info(f"Embedding backend: {embed_url} (model: {embed_model})")
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 

@@ -14,9 +14,16 @@ def _litellm_model_entry(
     model_id: str,
     model: ModelDefinition,
     registry: ModelRegistry,
+    *,
+    effective_tool_proxy: bool | None = None,
 ) -> dict:
-    """Build a single LiteLLM model_list entry."""
-    api_base = registry.get_api_base(model_id)
+    """Build a single LiteLLM model_list entry.
+
+    When `effective_tool_proxy` is set (used by alias entries with a per-alias
+    override), it overrides the model's tool_proxy flag for routing + naming.
+    """
+    use_tool_proxy = effective_tool_proxy if effective_tool_proxy is not None else model.tool_proxy
+    api_base = registry.get_api_base(model_id, tool_proxy=use_tool_proxy)
 
     # Resolve API key: external models use their own key, local models don't need one
     if model.api_key:
@@ -24,9 +31,9 @@ def _litellm_model_entry(
     else:
         api_key = "not-needed"
 
-    # For tool_proxy models, send model_id (not hf_repo) so the tool proxy
+    # For tool_proxy entries, send model_id (not hf_repo) so the tool proxy
     # can disambiguate when multiple models share the same hf_repo.
-    model_name_for_backend = model_id if model.tool_proxy else model.hf_repo
+    model_name_for_backend = model_id if use_tool_proxy else model.hf_repo
 
     entry: dict = {
         "model_name": model_id,
@@ -40,7 +47,7 @@ def _litellm_model_entry(
             "node": model.node,
             "backend": model.backend.value,
             "always_on": model.always_on,
-            "tool_proxy": model.tool_proxy,
+            "tool_proxy": use_tool_proxy,
             "vram_gb": model.vram_gb,
             **({"health_check": False} if model.backend.value == "external" else {}),
             "capabilities": [c.value for c in model.capabilities],
@@ -80,10 +87,23 @@ def generate_litellm_config(registry: ModelRegistry, *, mode: str | None = None)
         entry = _litellm_model_entry(model_id, model, registry)
         model_list.append(entry)
 
-        # Alias entries — each alias points to the same backend
+        # Alias entries — each alias points to the same backend.
+        # Per-alias `tool_proxy` override (from alias_overrides) flips routing
+        # for that single alias. When an alias is tool-proxy-routed, forward
+        # the alias name (not the canonical id) so the tool proxy can apply
+        # alias_overrides logic against the matched alias.
         for alias in model.aliases:
-            alias_entry = _litellm_model_entry(model_id, model, registry)
+            override = model.alias_overrides.get(alias)
+            override_tool_proxy = override.tool_proxy if override else None
+            alias_entry = _litellm_model_entry(
+                model_id, model, registry, effective_tool_proxy=override_tool_proxy,
+            )
             alias_entry["model_name"] = alias
+            use_tool_proxy = (
+                override_tool_proxy if override_tool_proxy is not None else model.tool_proxy
+            )
+            if use_tool_proxy:
+                alias_entry["litellm_params"]["model"] = f"openai/{alias}"
             model_list.append(alias_entry)
 
     config: dict = {

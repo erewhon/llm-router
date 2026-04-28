@@ -1,10 +1,11 @@
-# systemd unit for Qwen3-Coder 30B-A3B FIM Service (llama.cpp Vulkan)
+# systemd unit for Qwen3-Coder 30B-A3B FIM Service (llama.cpp CUDA)
+# Deploy to: archimedes
 # Install: sudo cp qwen3-coder-fim.service /etc/systemd/system/qwen3-coder-fim.service
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now qwen3-coder-fim
 
 [Unit]
-Description=Qwen3-Coder 30B-A3B FIM Service (llama.cpp Vulkan)
+Description=Qwen3-Coder 30B-A3B FIM Service (llama.cpp CUDA)
 After=network-online.target
 Wants=network-online.target
 
@@ -12,9 +13,10 @@ Wants=network-online.target
 Type=simple
 User=erewhon
 Group=erewhon
+Environment=LD_LIBRARY_PATH=/opt/llama-cpp-cuda:/usr/local/cuda/lib64
 
-ExecStart=/opt/llama-cpp-vk/llama-server \
-    -m /data/ai/models/qwen3-coder/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
+ExecStart=/opt/llama-cpp-cuda/llama-server \
+    -m /home/erewhon/models/qwen3-coder/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf \
     --host 0.0.0.0 \
     --port 5401 \
     -ngl 999 \

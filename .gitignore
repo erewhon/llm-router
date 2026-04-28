@@ -19,6 +19,9 @@ bench-results/
 !pyproject.toml
 cc.txt
 
+# Incident reports / private working notes
+incidents/
+
 # open-mem database files
 .open-mem/
 

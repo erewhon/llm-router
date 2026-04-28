@@ -68,6 +68,7 @@ COMPLEXITY_KEYWORDS: set[str] = {
 # Cached category embeddings (computed at startup)
 _category_embeddings: dict[str, list[float]] | None = None
 _embed_url: str = ""
+_embed_model: str = "qwen3-embedding-4b"
 
 # JSONL decision log
 _log_path: Path = Path("/var/log/llm-router/auto-router-decisions.jsonl")
@@ -148,7 +149,7 @@ async def _get_embedding(text: str) -> list[float]:
         resp = await client.post(
             f"{_embed_url}/v1/embeddings",
             json={
-                "model": "text-embedding-nomic-embed-text-v1.5",
+                "model": _embed_model,
                 "input": text,
             },
         )
@@ -156,20 +157,38 @@ async def _get_embedding(text: str) -> list[float]:
         return resp.json()["data"][0]["embedding"]
 
 
-async def initialize(embed_url: str = "http://localhost:1234") -> None:
-    """Pre-compute category embeddings at startup."""
-    global _category_embeddings, _embed_url
-    _embed_url = embed_url
+async def initialize(
+    embed_url: str = "http://192.168.42.240:5404",
+    embed_model: str = "qwen3-embedding-4b",
+    active_aliases: set[str] | None = None,
+) -> None:
+    """Pre-compute category embeddings at startup.
 
-    logger.info("Computing category embeddings for auto-router...")
+    If active_aliases is provided, skip ROUTE_CATEGORIES whose key isn't in
+    the active set — this prevents the auto-router from selecting an alias
+    that maps to a disabled model in the LiteLLM config.
+    """
+    global _category_embeddings, _embed_url, _embed_model
+    _embed_url = embed_url
+    _embed_model = embed_model
+
+    if active_aliases is not None:
+        skipped = [a for a in ROUTE_CATEGORIES if a not in active_aliases]
+        if skipped:
+            logger.info(f"Skipping disabled aliases: {skipped}")
+        categories = {a: d for a, d in ROUTE_CATEGORIES.items() if a in active_aliases}
+    else:
+        categories = ROUTE_CATEGORIES
+
+    logger.info(f"Computing category embeddings for auto-router (backend={embed_url}, model={embed_model})...")
     _category_embeddings = {}
-    for alias, description in ROUTE_CATEGORIES.items():
+    for alias, description in categories.items():
         try:
             embedding = await _get_embedding(description)
             _category_embeddings[alias] = embedding
             logger.info(f"  {alias}: {len(embedding)} dims")
         except Exception as e:
-            logger.warning(f"  {alias}: failed to embed — {e}")
+            logger.warning(f"  {alias}: failed to embed — {type(e).__name__}: {e!r}")
 
     logger.info(
         f"Auto-router ready with {len(_category_embeddings)} categories, "

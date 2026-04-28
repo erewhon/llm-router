@@ -1,10 +1,11 @@
-# systemd unit for UI-TARS 1.5 7B GUI Agent (llama.cpp Vulkan)
+# systemd unit for UI-TARS 1.5 7B GUI Agent (llama.cpp CUDA)
+# Deploy to: archimedes
 # Install: sudo cp ui-tars.service /etc/systemd/system/ui-tars.service
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now ui-tars
 
 [Unit]
-Description=UI-TARS 1.5 7B GUI Agent (llama.cpp Vulkan)
+Description=UI-TARS 1.5 7B GUI Agent (llama.cpp CUDA)
 After=network-online.target
 Wants=network-online.target
 
@@ -12,10 +13,11 @@ Wants=network-online.target
 Type=simple
 User=erewhon
 Group=erewhon
+Environment=LD_LIBRARY_PATH=/opt/llama-cpp-cuda:/usr/local/cuda/lib64
 
-ExecStart=/opt/llama-cpp-vk/llama-server \
-    -m /data/ai/models/ui-tars/UI-TARS-1.5-7B.Q5_K_M.gguf \
-    --mmproj /data/ai/models/ui-tars/UI-TARS-1.5-7B.mmproj-Q8_0.gguf \
+ExecStart=/opt/llama-cpp-cuda/llama-server \
+    -m /home/erewhon/models/ui-tars/UI-TARS-1.5-7B.Q5_K_M.gguf \
+    --mmproj /home/erewhon/models/ui-tars/UI-TARS-1.5-7B.mmproj-Q8_0.gguf \
     --host 0.0.0.0 \
     --port 5400 \
     -ngl 999 \

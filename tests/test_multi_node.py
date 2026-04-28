@@ -51,8 +51,8 @@ def test_multi_node_model_routing():
     """Multi-node model should route through head node (first in list)."""
     reg = load_registry_from_dict(MULTI_NODE_REGISTRY)
     base = reg.get_api_base("llama4-scout")
-    # tool_proxy=True → port 5392, routed through delphi (tool proxy host)
-    assert base == "http://delphi:5392/v1"
+    # tool_proxy=True → port 5392, routed through euclid (tool proxy host, hardcoded IP)
+    assert base == "http://192.168.42.240:5392/v1"
 
 
 def test_multi_node_model_assigned_to_both_nodes():

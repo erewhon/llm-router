@@ -95,7 +95,7 @@ def test_get_node():
 def test_get_api_base_with_tool_proxy():
     reg = load_registry_from_dict(SAMPLE_REGISTRY)
     base = reg.get_api_base("test-model")
-    assert base == "http://delphi:5392/v1"
+    assert base == "http://192.168.42.240:5392/v1"
 
 
 def test_get_api_base_without_tool_proxy():

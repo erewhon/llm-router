@@ -66,6 +66,21 @@ class VllmArgs(BaseModel):
     extra_args: list[str] = Field(default_factory=list)
 
 
+class AliasOverride(BaseModel):
+    """Per-alias overrides applied when this alias is requested.
+
+    - chat_template_kwargs: defaults injected by the tool proxy. Client-supplied
+      values in the request body take precedence per-key.
+    - tool_proxy: if set, overrides the parent model's tool_proxy flag for this
+      alias only. Use `false` to bypass the tool proxy for one alias even when
+      the canonical model routes through it (e.g. opt a "coder" alias out of
+      tool injection while keeping "research" tool-proxy-routed).
+    """
+
+    chat_template_kwargs: dict[str, Any] = Field(default_factory=dict)
+    tool_proxy: bool | None = None
+
+
 class ModelDefinition(BaseModel):
     """A single model entry in the registry."""
 
@@ -78,6 +93,7 @@ class ModelDefinition(BaseModel):
     enabled: bool = True  # False = model shown in dashboard but not started/health-checked
     tool_proxy: bool = False
     aliases: list[str] = Field(default_factory=list)
+    alias_overrides: dict[str, AliasOverride] = Field(default_factory=dict)
     capabilities: list[ModelCapability] = Field(default_factory=lambda: [ModelCapability.TEXT])
     tags: list[str] = Field(default_factory=list)
 
@@ -130,11 +146,13 @@ class ModelRegistry(BaseModel):
             raise ValueError(f"Model {model_id!r} is multi-node, use get_nodes()")
         return self.nodes[model.node]
 
-    def get_api_base(self, model_id: str) -> str:
+    def get_api_base(self, model_id: str, *, tool_proxy: bool | None = None) -> str:
         """Get the API base URL for a model's inference backend.
 
         For multi-node models, uses the head node.
         For external models, returns the configured api_base.
+        When `tool_proxy` is passed, it overrides the model's own flag — used
+        by per-alias entries that opt in or out of the tool proxy.
         """
         model = self.models[model_id]
         if model.api_base:
@@ -144,10 +162,11 @@ class ModelRegistry(BaseModel):
             host = self.nodes[head].host
         else:
             host = self.get_node(model_id).host
-        if model.tool_proxy:
-            # Tool proxy runs on delphi — route all tool_proxy models there
-            tp_host = self.nodes["delphi"].host if "delphi" in self.nodes else host
-            return f"http://{tp_host}:5392/v1"
+        effective_tool_proxy = tool_proxy if tool_proxy is not None else model.tool_proxy
+        if effective_tool_proxy:
+            # Tool proxy runs on euclid (svc-sys-research-vpn nspawn container).
+            # Hardcoded IP avoids euclid.local mDNS instability seen 2026-05-09.
+            return "http://192.168.42.240:5392/v1"
         if model.api_port:
             return f"http://{host}:{model.api_port}/v1"
         return f"http://{host}:5391/v1"

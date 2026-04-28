@@ -1,9 +1,10 @@
-# systemd unit for llm-router tool proxy (delphi)
+# systemd unit for llm-router tool proxy (euclid)
 # Install: sudo cp tool-proxy.service /etc/systemd/system/llm-router-tool-proxy.service
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now llm-router-tool-proxy
 #
 # Routes outbound web requests through SOCKS5 VPN proxy
+# (svc-sys-research-vpn nspawn container at 192.168.42.219)
 
 [Unit]
 Description=LLM Router Tool Proxy
@@ -17,8 +18,10 @@ Group=erewhon
 
 ExecStart=/home/erewhon/Projects/erewhon/llm-router/.venv/bin/python -m llm_router.tool_proxy.service \
     --port 5392 \
-    --vllm-url http://localhost:1234 \
-    --proxy socks5://192.168.42.84:1080
+    --vllm-url http://archimedes.local:5391 \
+    --embed-url http://192.168.42.240:5404 \
+    --embed-model qwen3-embedding-4b \
+    --proxy socks5://192.168.42.219:1080
 
 Restart=on-failure
 RestartSec=5

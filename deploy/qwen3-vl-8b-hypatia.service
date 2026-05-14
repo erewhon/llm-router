@@ -1,0 +1,29 @@
+# systemd unit for Qwen3-VL-8B-Instruct (llama.cpp CUDA, Docker) on hypatia.
+#
+# Optional — Docker's `--restart unless-stopped` already survives reboots.
+# Install this unit only if you want lifecycle controlled via systemctl
+# (status / start / stop / restart).
+#
+# Install:
+#   sudo cp qwen3-vl-8b-hypatia.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now qwen3-vl-8b-hypatia
+
+[Unit]
+Description=Qwen3-VL-8B-Instruct Vision Model (llama.cpp CUDA, Docker) on hypatia
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=erewhon
+Group=erewhon
+
+ExecStart=/home/erewhon/Projects/erewhon/llm-router/deploy/run-qwen3-vl-8b-hypatia.sh
+ExecStop=/usr/bin/docker stop llamacpp-qwen3-vl-8b
+ExecStopPost=/usr/bin/docker rm -f llamacpp-qwen3-vl-8b
+
+[Install]
+WantedBy=multi-user.target

@@ -48,10 +48,58 @@ sglang-archimedes:
 sglang-hypatia:
     ./deploy/run-sglang-qwen36-hypatia.sh
 
+# ─── llama.cpp containers ─────────────────────────────────────────────────────
+
+# Download Qwen3-VL-8B weights to hypatia (~10GB, one-time; idempotent)
+qwen3-vl-setup:
+    ssh erewhon@hypatia.local "bash /home/erewhon/Projects/erewhon/llm-router/deploy/setup-qwen3-vl-8b-hypatia.sh"
+
+# Start Qwen3-VL-8B llama.cpp container on hypatia (port 5398)
+qwen3-vl-up:
+    ssh erewhon@hypatia.local "bash /home/erewhon/Projects/erewhon/llm-router/deploy/run-qwen3-vl-8b-hypatia.sh"
+
+# Stop and remove the Qwen3-VL-8B container on hypatia
+qwen3-vl-down:
+    ssh erewhon@hypatia.local "docker rm -f llamacpp-qwen3-vl-8b 2>/dev/null || true"
+
+# Tail Qwen3-VL-8B container logs (Ctrl-C to detach)
+qwen3-vl-logs lines="80":
+    ssh -t erewhon@hypatia.local "docker logs --tail {{lines}} -f llamacpp-qwen3-vl-8b"
+
+# Show Qwen3-VL-8B container status on hypatia
+qwen3-vl-status:
+    @ssh erewhon@hypatia.local "docker ps -a --filter name=llamacpp-qwen3-vl-8b --format 'table {{ '{{' }}.Names{{ '}}' }}\t{{ '{{' }}.Status{{ '}}' }}\t{{ '{{' }}.Image{{ '}}' }}'"
+
 # ─── Service restarts ──────────────────────────────────────────────────────────
 
+# Restart the Go router on euclid (cut over from LiteLLM 2026-06-06).
+# To roll back to LiteLLM, use `just rollback-to-litellm`.
 restart-proxy:
-    ssh erewhon@euclid.local "sudo systemctl restart litellm-proxy"
+    ssh erewhon@euclid.local "sudo systemctl restart llm-router-go"
+
+# Roll back: stop Go router, restart LiteLLM. Use if Go router has a regression.
+rollback-to-litellm:
+    ssh erewhon@euclid.local "set -e ; \
+        sudo systemctl stop llm-router-go ; \
+        sudo systemctl disable llm-router-go ; \
+        sudo systemctl enable --now litellm-proxy ; \
+        systemctl is-active litellm-proxy"
+
+# Re-cut to Go router after a rollback.
+cutover-to-go-router:
+    ssh erewhon@euclid.local "set -e ; \
+        sudo systemctl stop litellm-proxy ; \
+        sudo systemctl disable litellm-proxy ; \
+        sudo systemctl enable --now llm-router-go ; \
+        systemctl is-active llm-router-go"
+
+# Tail Go router logs (Ctrl-C detaches).
+proxy-logs lines="80":
+    ssh -t erewhon@euclid.local "sudo journalctl -u llm-router-go -f --no-pager -n {{lines}}"
+
+# Build + deploy the Go router. `--cutover` flips services automatically.
+deploy-proxy *args:
+    ~/code/llm-router-go/deploy/scripts/deploy-router.sh {{args}}
 
 restart-dashboard:
     ssh erewhon@euclid.local "sudo systemctl restart litellm-dashboard"
@@ -81,6 +129,13 @@ probe-proxy:
 probe-tailscale:
     @ssh erewhon@euclid.local "sudo tailscale serve --service=svc:llm get-config"
 
+# Smoke-test Qwen3-VL-8B: direct container probe + via LiteLLM
+probe-qwen3-vl:
+    @echo "=== direct: hypatia:5398/v1/models ==="
+    @curl -sS -m 3 http://hypatia.local:5398/v1/models | python3 -m json.tool || echo "(unreachable — container not running?)"
+    @echo "=== via LiteLLM: vision-fast in /v1/models ==="
+    @curl -sS https://llm.peacock-bramble.ts.net/v1/models -H "Authorization: Bearer sk-litellm-master" | python3 -c 'import json,sys; d=json.load(sys.stdin); hits=[m["id"] for m in d["data"] if "qwen3-vl" in m["id"] or m["id"]=="vision-fast"]; print(*hits, sep="\n") if hits else print("(not registered)")'
+
 # Where the deployed copy of models.yaml is on each node and its mtime
 probe-deployed-models:
     #!/usr/bin/env bash
@@ -94,6 +149,20 @@ probe-deployed-models:
 # Re-apply svc:llm path handlers on euclid (idempotent; also runs at boot)
 tailscale-restore:
     ssh erewhon@euclid.local "sudo /usr/local/bin/tailscale-serve-restore-svc-llm.sh"
+
+# ─── RAG ───────────────────────────────────────────────────────────────────────
+
+# Ingest a code repo into the Qdrant `code` collection (default: this repo)
+rag-ingest-code path=".":
+    uv run llm-router-rag ingest-code {{path}}
+
+# Search the code collection
+rag-search query top-k="10":
+    uv run llm-router-rag search-code "{{query}}" --top-k {{top-k}}
+
+# Qdrant collection stats
+rag-stats:
+    @curl -s http://euclid.local:6333/collections/code | python3 -m json.tool
 
 # ─── Code quality ──────────────────────────────────────────────────────────────
 

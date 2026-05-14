@@ -485,19 +485,24 @@ models:
       - thinking
 
   qwen3-vl-8b:
-    hf_repo: qwen3-vl-8b-instruct@q8_0
-    backend: lmstudio
-    node: delphi
-    api_port: 1234
-    vram_gb: 10
+    hf_repo: Qwen/Qwen3-VL-8B-Instruct-GGUF
+    backend: external
+    node: hypatia
+    api_base: http://hypatia.local:5398
+    api_port: 5398
+    vram_gb: 12
     always_on: true
-    enabled: false
+    enabled: true
     tool_proxy: false
-    aliases: []
+    aliases:
+      - qwen3-vl
+      - vision-fast
     capabilities:
       - text
       - vision
       - tool_calling
+    tags:
+      - mode:default
 
   # --- Auto-router (embedding classifier on delphi tool proxy) ---
   # Three tiers — all route coding tasks to local coder by default:

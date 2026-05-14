@@ -32,6 +32,16 @@ dev = [
     "ruff>=0.9",
     "httpx",  # for FastAPI TestClient
 ]
+rag = [
+    "qdrant-client>=1.12",
+    "tree-sitter>=0.23",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-bash>=0.23",
+]
+photo-tag = [
+    "Pillow>=11.0",
+    "pillow-heif>=0.18",
+]
 
 [project.scripts]
 llm-router-generate = "llm_router.generate_config:main"
@@ -40,6 +50,8 @@ llm-router-tool-proxy = "llm_router.tool_proxy.service:cli"
 llm-router-dashboard = "llm_router.dashboard:cli"
 llm-router-bench = "llm_router.bench:cli"
 llm-router-tui = "llm_router.tui:cli"
+llm-router-rag = "llm_router.rag.cli:cli"
+photo-tag = "llm_router.photo_tag:main"
 
 [build-system]
 requires = ["hatchling"]

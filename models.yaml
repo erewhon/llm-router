@@ -573,6 +573,7 @@ models:
     backend: external
     node: euclid
     api_base: http://euclid.local:5404/v1
+    api_class: embeddings
     vram_gb: 4
     always_on: true
     aliases:
@@ -587,6 +588,7 @@ models:
     backend: external
     node: euclid
     api_base: http://euclid.local:5404/v1
+    api_class: rerank
     vram_gb: 4
     always_on: true
     aliases:
@@ -601,6 +603,7 @@ models:
     backend: external
     node: euclid
     api_base: http://euclid.local:5399/v3
+    api_class: stt
     vram_gb: 1
     always_on: true
     aliases:
@@ -616,6 +619,7 @@ models:
     backend: external
     node: euclid
     api_base: http://euclid.local:5395
+    api_class: tts
     vram_gb: 0
     always_on: true
     aliases:
@@ -630,6 +634,7 @@ models:
     hf_repo: orpheus-3b-0.1-ft
     backend: external
     api_base: http://euclid.local:5397/v1
+    api_class: tts
     always_on: true
     aliases:
       - orpheus
@@ -659,6 +664,7 @@ models:
     backend: external
     node: delphi
     api_base: http://delphi.local:5402
+    api_class: image_edit
     vram_gb: 20
     always_on: true
     aliases:
@@ -674,6 +680,7 @@ models:
     backend: external
     node: delphi
     api_base: http://delphi.local:5403
+    api_class: music_gen
     vram_gb: 8
     always_on: true
     aliases:
@@ -689,6 +696,7 @@ models:
     backend: external
     node: delphi
     api_base: http://delphi.local:5396
+    api_class: image_gen
     vram_gb: 23
     always_on: true
     aliases:

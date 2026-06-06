@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 from pathlib import Path
 
 import click
@@ -36,6 +37,16 @@ async def dashboard():
     return DASHBOARD_HTML
 
 
+# Hostnames that mean "this machine" — swap to loopback to dodge mDNS games
+# (e.g. euclid resolving euclid.local to an IPv6 the agent doesn't bind).
+_SELF_HOSTNAMES = {
+    socket.gethostname(),
+    socket.gethostname() + ".local",
+    socket.getfqdn(),
+    "localhost",
+}
+
+
 async def _fetch_node_metrics(
     name: str, host: str, agent_port: int
 ) -> dict:
@@ -49,8 +60,15 @@ async def _fetch_node_metrics(
         "models": [],
     }
     try:
+        if host in _SELF_HOSTNAMES:
+            host = "127.0.0.1"
         base = f"http://{host}:{agent_port}"
-        async with httpx.AsyncClient(timeout=5) as client:
+        # 5s was the default; trimmed to 1.5s after the 2026-06-06 dashboard
+        # latency dig — a broken mDNS resolution (delphi.local → an overlay
+        # IP that isn't routable from euclid) was making every page load
+        # wait the full timeout. Healthy probes return in <250ms; 1.5s is
+        # still 6× headroom for genuinely slow nodes.
+        async with httpx.AsyncClient(timeout=1.5) as client:
             health_resp, models_resp = await asyncio.gather(
                 client.get(f"{base}/health"),
                 client.get(f"{base}/models"),

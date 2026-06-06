@@ -125,10 +125,6 @@ probe-agents:
 probe-proxy:
     @curl -sS https://llm.peacock-bramble.ts.net/v1/models -H "Authorization: Bearer sk-litellm-master" | python3 -m json.tool
 
-# What the Tailscale Service config looks like
-probe-tailscale:
-    @ssh erewhon@euclid.local "sudo tailscale serve --service=svc:llm get-config"
-
 # Smoke-test Qwen3-VL-8B: direct container probe + via LiteLLM
 probe-qwen3-vl:
     @echo "=== direct: hypatia:5398/v1/models ==="
@@ -143,12 +139,6 @@ probe-deployed-models:
         echo -n "$h: "
         ssh -o ConnectTimeout=3 erewhon@$h.local "stat -c '%y' /home/erewhon/Projects/erewhon/llm-router/models.yaml 2>&1" 2>&1
     done
-
-# ─── Tailscale ─────────────────────────────────────────────────────────────────
-
-# Re-apply svc:llm path handlers on euclid (idempotent; also runs at boot)
-tailscale-restore:
-    ssh erewhon@euclid.local "sudo /usr/local/bin/tailscale-serve-restore-svc-llm.sh"
 
 # ─── RAG ───────────────────────────────────────────────────────────────────────
 

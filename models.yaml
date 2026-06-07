@@ -4,7 +4,7 @@
 
 nodes:
   delphi:
-    host: delphi.local
+    host: 192.168.42.159  # ovs-br0 LAN; dual-homed (also 10.42.1.x), so .local mDNS is ambiguous
     gpu: amd
     vram_gb: 64  # Strix Halo unified memory allocation
     agent_port: 8100
@@ -24,7 +24,7 @@ nodes:
         port: 8188
         label: ComfyUI
   euclid:
-    host: euclid.local
+    host: euclid.local  # dashboard runs here and self-swaps this to 127.0.0.1; service api_bases below use the LAN IP
     gpu: intel
     vram_gb: 16  # Arc B50 Pro (Battlemage G21)
     agent_port: 8100
@@ -577,7 +577,7 @@ models:
     hf_repo: qwen3-embedding-4b
     backend: external
     node: euclid
-    api_base: http://euclid.local:5404/v1
+    api_base: http://192.168.42.240:5404/v1
     api_class: embeddings
     vram_gb: 4
     always_on: true
@@ -592,7 +592,7 @@ models:
     hf_repo: qwen3-reranker-4b
     backend: external
     node: euclid
-    api_base: http://euclid.local:5404/v1
+    api_base: http://192.168.42.240:5404/v1
     api_class: rerank
     vram_gb: 4
     always_on: true
@@ -607,7 +607,7 @@ models:
     hf_repo: whisper-large-v3-turbo
     backend: external
     node: euclid
-    api_base: http://euclid.local:5399/v3
+    api_base: http://192.168.42.240:5399/v3
     api_class: stt
     vram_gb: 1
     always_on: true
@@ -623,7 +623,7 @@ models:
     hf_repo: kokoro-82m
     backend: external
     node: euclid
-    api_base: http://euclid.local:5395
+    api_base: http://192.168.42.240:5395
     api_class: tts
     vram_gb: 0
     always_on: true
@@ -638,7 +638,7 @@ models:
   orpheus-tts:
     hf_repo: orpheus-3b-0.1-ft
     backend: external
-    api_base: http://euclid.local:5397/v1
+    api_base: http://192.168.42.240:5397/v1
     api_class: tts
     always_on: true
     aliases:
@@ -652,7 +652,7 @@ models:
     hf_repo: bytedance/UI-TARS-1.5-7B
     backend: external
     node: delphi
-    api_base: http://delphi.local:5400
+    api_base: http://192.168.42.159:5400
     vram_gb: 5
     always_on: true
     aliases:
@@ -668,7 +668,7 @@ models:
     hf_repo: Qwen/Qwen-Image-Edit
     backend: external
     node: delphi
-    api_base: http://delphi.local:5402
+    api_base: http://192.168.42.159:5402
     api_class: image_edit
     vram_gb: 20
     always_on: true
@@ -684,7 +684,7 @@ models:
     hf_repo: ACE-Step/ACE-Step-v1.5
     backend: external
     node: delphi
-    api_base: http://delphi.local:5403
+    api_base: http://192.168.42.159:5403
     api_class: music_gen
     vram_gb: 8
     always_on: true
@@ -700,7 +700,7 @@ models:
     hf_repo: FLUX.1-dev
     backend: external
     node: delphi
-    api_base: http://delphi.local:5396
+    api_base: http://192.168.42.159:5396
     api_class: image_gen
     vram_gb: 23
     always_on: true

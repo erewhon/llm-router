@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -306,6 +308,39 @@ def get_gpu_info(override_type: GpuType | None = None) -> GpuInfo:
         f"busy={busy}%"
     )
     return info
+
+
+_gpu_cache_lock = threading.Lock()
+_gpu_cache: GpuInfo | None = None
+_gpu_cache_monotonic: float = 0.0
+
+
+def get_gpu_info_cached(
+    override_type: GpuType | None = None, *, ttl: float = 5.0
+) -> GpuInfo:
+    """Return GPU info, re-probing at most once per `ttl` seconds.
+
+    ``get_gpu_info`` shells out to vendor tools (xpu-smi/nvidia-smi) that can
+    take seconds — notably the Intel path, where xpu-smi retries against a
+    permission-denied ``/dev/mei0`` and burns ~3s per call. The dashboard polls
+    ``/health`` every ~1.5s, so probing on every request pinned the agent's
+    event loop and saturated its accept queue (euclid showed up "offline").
+
+    Caching collapses that to one probe per ``ttl`` window. The lock is held
+    across the probe so concurrent callers serialize onto a single refresh
+    instead of stampeding xpu-smi. Callers MUST invoke this via
+    ``asyncio.to_thread`` (or another thread) so the blocking probe and the
+    lock-wait never run on the event loop.
+    """
+    global _gpu_cache, _gpu_cache_monotonic
+    with _gpu_cache_lock:
+        now = time.monotonic()
+        if _gpu_cache is not None and (now - _gpu_cache_monotonic) < ttl:
+            return _gpu_cache
+        info = get_gpu_info(override_type)
+        _gpu_cache = info
+        _gpu_cache_monotonic = time.monotonic()
+        return info
 
 
 def compute_gpu_memory_utilization(

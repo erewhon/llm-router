@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 import socket
@@ -239,13 +240,18 @@ async def health() -> NodeHealthResponse:
     free_vram = None
     gpu_busy = None
     try:
-        from llm_router.node_agent.gpu import get_gpu_info
+        from llm_router.node_agent.gpu import get_gpu_info_cached
 
         # Use the configured GPU type from the registry to avoid
-        # misdetection on multi-GPU systems (e.g. AMD iGPU + Intel dGPU)
+        # misdetection on multi-GPU systems (e.g. AMD iGPU + Intel dGPU).
+        # Run the probe in a thread (it shells out to xpu-smi/nvidia-smi and can
+        # block for seconds) and serve a short-lived cache so frequent /health
+        # polls don't pin the event loop — see get_gpu_info_cached.
         node_def = _registry.nodes.get(_node_name)
         configured_gpu = node_def.gpu if node_def else None
-        info = get_gpu_info(override_type=configured_gpu)
+        info = await asyncio.to_thread(
+            get_gpu_info_cached, configured_gpu
+        )
         gpu_type = info.gpu_type.value
         total_vram = info.total_vram_gb
         free_vram = info.free_vram_gb

@@ -93,14 +93,18 @@ deploy_dashboard() {
     rebuild_venv "$DASHBOARD_HOST"
     install_services "$DASHBOARD_HOST"
 
-    info "Restarting dashboard + proxy on $DASHBOARD_HOST..."
-    ssh "$DASHBOARD_HOST" "sudo systemctl restart litellm-dashboard litellm-proxy"
+    # The proxy is the Go router (llm-router-go), NOT litellm-proxy, since the
+    # 2026-06-06 cutover. Restarting litellm-proxy here would trip the Go unit's
+    # `Conflicts=litellm-proxy` and silently revert the cutover — do NOT re-add
+    # it. Roll back deliberately with `just rollback-to-litellm` instead.
+    info "Restarting dashboard + Go router on $DASHBOARD_HOST..."
+    ssh "$DASHBOARD_HOST" "sudo systemctl restart litellm-dashboard llm-router-go"
 
     local dash_status proxy_status
     dash_status=$(ssh "$DASHBOARD_HOST" "systemctl is-active litellm-dashboard")
-    proxy_status=$(ssh "$DASHBOARD_HOST" "systemctl is-active litellm-proxy")
+    proxy_status=$(ssh "$DASHBOARD_HOST" "systemctl is-active llm-router-go")
     [[ "$dash_status" == "active" ]] && ok "Dashboard on $DASHBOARD_HOST: active" || err "Dashboard on $DASHBOARD_HOST: $dash_status"
-    [[ "$proxy_status" == "active" ]] && ok "Proxy on $DASHBOARD_HOST: active" || err "Proxy on $DASHBOARD_HOST: $proxy_status"
+    [[ "$proxy_status" == "active" ]] && ok "Go router on $DASHBOARD_HOST: active" || err "Go router on $DASHBOARD_HOST: $proxy_status"
     echo ""
 }
 

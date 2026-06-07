@@ -1,7 +1,7 @@
 """Lightweight model dashboard — single-file FastAPI app.
 
 Serves a status page showing all models from the registry with
-live health/status from the LiteLLM proxy API.
+live status from the per-node agents.
 
 Run standalone:  uv run python -m llm_router.dashboard
 Or as a service:  see deploy/litellm-dashboard.service
@@ -67,7 +67,7 @@ async def _fetch_node_metrics(
         # latency dig — a broken mDNS resolution (delphi.local → an overlay
         # IP that isn't routable from euclid) was making every page load
         # wait the full timeout. Healthy probes return in <250ms; 1.5s is
-        # still 6× headroom for genuinely slow nodes.
+        # still 6x headroom for genuinely slow nodes.
         async with httpx.AsyncClient(timeout=1.5) as client:
             health_resp, models_resp = await asyncio.gather(
                 client.get(f"{base}/health"),
@@ -136,37 +136,8 @@ async def node_metrics():
 
 @app.get("/api/models")
 async def api_models():
-    """Aggregate model info from registry + LiteLLM health + node metrics."""
+    """Aggregate model info from the registry + node-agent metrics."""
     assert _registry is not None
-
-    # Fetch live data from LiteLLM
-    live_models: dict = {}
-    health_info: dict = {}
-    try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(
-                f"{_litellm_url}/model/info",
-                headers={"Authorization": f"Bearer {_litellm_key}"},
-            )
-            if resp.status_code == 200:
-                for entry in resp.json().get("data", []):
-                    name = entry.get("model_name", "")
-                    live_models[name] = entry
-
-            resp = await client.get(
-                f"{_litellm_url}/health",
-                headers={"Authorization": f"Bearer {_litellm_key}"},
-            )
-            if resp.status_code == 200:
-                hdata = resp.json()
-                for ep in hdata.get("healthy_endpoints", []):
-                    model = ep.get("model", "").removeprefix("openai/")
-                    health_info[model] = "healthy"
-                for ep in hdata.get("unhealthy_endpoints", []):
-                    model = ep.get("model", "").removeprefix("openai/")
-                    health_info[model] = "unhealthy"
-    except Exception as e:
-        logger.warning(f"Could not reach LiteLLM at {_litellm_url}: {e}")
 
     # Fetch node metrics in parallel
     node_metrics: dict[str, dict] = {}
@@ -215,16 +186,21 @@ async def api_models():
             nodes = []
             head = None
 
-        # Check if this model (or its hf_repo) is healthy
-        health = health_info.get(model.hf_repo, "unknown")
-        if model_id in live_models:
-            health = "routed"
-            if model.hf_repo in health_info:
-                health = health_info[model.hf_repo]
-
         # Node agent state (running/stopped/starting/error)
         agent_state = agent_model_states.get(model_id)
         reqs = agent_model_requests.get(model_id, {})
+
+        # The Go router has no central per-model health endpoint (it replaced
+        # LiteLLM's /model/info + /health). Node-managed models report liveness
+        # via agent_state (the frontend prefers it); externals with no node
+        # (e.g. Zen) are marked "routed" — reachable through the router but not
+        # actively probed here.
+        if agent_state:
+            health = "unknown"  # frontend uses agent_state
+        elif model.node is None and not model.multi_node:
+            health = "routed"
+        else:
+            health = "unknown"
 
         api_base = _registry.get_api_base(model_id)
 
@@ -704,7 +680,7 @@ function render(data) {
 
   // Stats
   const alwaysOn = models.filter(m => m.always_on && m.enabled !== false).length;
-  const healthy = models.filter(m => m.health === 'healthy' || m.health === 'routed').length;
+  const running = models.filter(m => m.enabled !== false && (m.agent_state === 'running' || isRouterModel(m))).length;
 
   // Fleet VRAM totals
   let fleetVramTotal = 0, fleetVramUsed = 0;
@@ -727,29 +703,24 @@ function render(data) {
         <div class="stat-value">${alwaysOn}</div>
         <div class="stat-label">Always On</div></div>
       <div class="stat">
-        <div class="stat-value">${healthy}</div>
-        <div class="stat-label">Healthy</div></div>
+        <div class="stat-value">${running}</div>
+        <div class="stat-label">Running</div></div>
       <div class="stat">
         <div class="stat-value">${fleetVramUsed.toFixed(0)}<span style="font-size:0.9rem;color:var(--text-dim)"> / ${fleetVramTotal.toFixed(0)} GB</span></div>
         <div class="stat-label">Fleet VRAM</div></div>
     </div>`;
 
   // Connection info
-  const tsUrl = 'https://llm.peacock-bramble.ts.net';
+  const publicUrl = 'https://llm.bcc.sh';
   html += `
     <div class="section-title">Connection</div>
     <div class="nodes">
       <div class="node-card" style="flex:2">
         <div class="node-name">Quick Start</div>
         <div class="node-detail" style="margin-top:0.5rem">
-          <strong>Host:</strong> <span class="api-base">${tsUrl}</span>
-          <button class="copy-btn" onclick="copyText('${tsUrl}', this)">copy</button>
-          <span style="color:var(--text-dim); font-size:0.75rem">(preferred)</span>
-        </div>
-        <div class="node-detail">
-          <strong>Direct:</strong> <span class="api-base">${litellm_url}</span>
-          <button class="copy-btn" onclick="copyText('${litellm_url}', this)">copy</button>
-          <span style="color:var(--text-dim); font-size:0.75rem">(from delphi only)</span>
+          <strong>Host:</strong> <span class="api-base">${publicUrl}</span>
+          <button class="copy-btn" onclick="copyText('${publicUrl}', this)">copy</button>
+          <span style="color:var(--text-dim); font-size:0.75rem">(via NetBird mesh)</span>
         </div>
         <div class="node-detail" style="margin-top:0.5rem">
           <strong>API Key:</strong> <span class="api-base">sk-litellm-master</span>
@@ -762,7 +733,7 @@ function render(data) {
       <div class="node-card" style="flex:3">
         <div class="node-name">Example</div>
         <div style="margin-top:0.5rem">
-          <span class="api-base">curl ${tsUrl}/v1/chat/completions \\<br>
+          <span class="api-base">curl ${publicUrl}/v1/chat/completions \\<br>
           &nbsp;&nbsp;-H "Authorization: Bearer sk-litellm-master" \\<br>
           &nbsp;&nbsp;-H "Content-Type: application/json" \\<br>
           &nbsp;&nbsp;-d '{"model":"${models[0]?.aliases?.[0] || models[0]?.id || 'MODEL'}","messages":[{"role":"user","content":"Hello"}]}'</span>
@@ -775,9 +746,9 @@ function render(data) {
     <div class="section-title">Apps</div>
     <div class="nodes">
       <div class="node-card" style="cursor:default; display:flex; gap:1rem; flex-wrap:wrap; align-items:center; padding:0.75rem 1.25rem">
-        <a href="http://euclid.local:4010/ui" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">LiteLLM Admin</a>
-        <a href="https://grafana.peacock-bramble.ts.net" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">Grafana</a>
-        <a href="http://hypatia.local:5403" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ACE-Step Music</a>
+        <a href="https://grafana.bcc.sh" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">Grafana</a>
+        <a href="https://llm-dashboard.bcc.sh" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">Dashboard</a>
+        <a href="http://192.168.42.159:5403" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ACE-Step Music</a>
         <a href="http://hypatia.local:8188" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ComfyUI</a>
       </div>
     </div>`;
@@ -956,8 +927,8 @@ function render(data) {
     if (m.nodes.length > 1) flags += '<span class="badge badge-multi">multi-node</span> ';
     if (m.tags) m.tags.forEach(t => { flags += `<span class="badge badge-tag">${t}</span> `; });
 
-    // Determine status: prefer agent_state when available, fall back to LiteLLM health
-    // Router models (auto, resilient) don't have backends to health-check
+    // Determine status: prefer node-agent state; externals (Zen) fall back to
+    // the registry-derived "routed". Router models have no backend to probe.
     let statusClass, statusLabel;
     if (isRouterModel(m)) {
       statusClass = 'health-healthy';
@@ -970,17 +941,8 @@ function render(data) {
       statusLabel = m.health === 'routed' ? 'healthy' : m.health;
     }
 
-    // Secondary indicator: show LiteLLM health alongside agent state
+    // Secondary indicator slot (reused below for request activity).
     let healthExtra = '';
-    if (m.agent_state && m.health !== 'unknown') {
-      const hLabel = m.health === 'routed' ? 'healthy' : m.health;
-      const hDot = `health-${m.health}`;
-      healthExtra = `<div style="font-size:0.7rem;` +
-        `color:var(--text-dim);margin-top:2px">` +
-        `<span class="health-dot ${hDot}"` +
-        ` style="width:6px;height:6px"></span>` +
-        `litellm: ${hLabel}</div>`;
-    }
 
     // Request activity + throughput indicator
     const reqRunning = m.requests_running || 0;

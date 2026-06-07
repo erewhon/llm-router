@@ -23,6 +23,14 @@ CONTEXT_LENGTH="${CONTEXT_LENGTH:-262144}"
 MAX_RUNNING_REQUESTS="${MAX_RUNNING_REQUESTS:-8}"
 PORT="${PORT:-5391}"
 
+# Pin PyTorch's distributed backend (gloo/NCCL) to the physical LAN NIC.
+# Without this, torch auto-selects an interface and was grabbing tailscale0
+# (2026-06-07), binding SGLang's internal scheduler/dist sockets to the
+# Tailscale IP — so shutting Tailscale down would kill the running engine.
+# enP7s7 is the always-up LAN NIC; immune to the Tailscale->NetBird churn.
+# Override DIST_IFNAME if the LAN interface name ever changes.
+DIST_IFNAME="${DIST_IFNAME:-enP7s7}"
+
 if [[ ! -f "${MODEL_DIR}/config.json" ]]; then
     echo "ERROR: ${MODEL_DIR}/config.json not found. Are the weights staged?" >&2
     exit 1
@@ -39,6 +47,8 @@ exec docker run -d \
     --restart unless-stopped \
     --gpus all \
     --shm-size=16g \
+    -e GLOO_SOCKET_IFNAME="${DIST_IFNAME}" \
+    -e NCCL_SOCKET_IFNAME="${DIST_IFNAME}" \
     -v "${MODEL_DIR}":/model:ro \
     "${IMAGE}" \
     python3 -m sglang.launch_server \

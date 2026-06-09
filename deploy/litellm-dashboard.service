@@ -5,8 +5,13 @@
 
 [Unit]
 Description=LLM Router Dashboard
-After=litellm-proxy.service
-Wants=litellm-proxy.service
+# Deliberately NO dependency on a proxy unit. This was Wants/After=
+# litellm-proxy.service, which silently resurrected LiteLLM on every
+# dashboard restart — and llm-router-go's Conflicts=litellm-proxy then
+# knocked the Go router off :4010. The dashboard reaches the node agents
+# and the Go router over HTTP; it needs neither proxy at startup.
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple

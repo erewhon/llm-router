@@ -44,10 +44,14 @@ rebuild_venv() {
 
 restart_agent() {
     local host=$1
+    # Post-cutover (2026-06-08) the node agent is the Go binary
+    # llm-router-go-agent on :8100, NOT the Python llm-router-agent.
+    # Restarting it picks up the freshly-synced models.yaml. Rolling back
+    # a node? Flip this back to llm-router-agent for that host.
     info "Restarting node agent on $host..."
-    ssh "$host" "sudo systemctl restart llm-router-agent"
+    ssh "$host" "sudo systemctl restart llm-router-go-agent"
     local status
-    status=$(ssh "$host" "systemctl is-active llm-router-agent")
+    status=$(ssh "$host" "systemctl is-active llm-router-go-agent")
     if [[ "$status" == "active" ]]; then
         ok "Node agent on $host: active"
     else
@@ -70,8 +74,8 @@ deploy_agents() {
         info "Rebuilding venv on delphi (localhost)..."
         uv sync --all-extras -q 2>&1 | tail -1 || true
         info "Restarting node agent on delphi..."
-        sudo systemctl restart llm-router-agent
-        if systemctl is-active llm-router-agent >/dev/null 2>&1; then
+        sudo systemctl restart llm-router-go-agent
+        if systemctl is-active llm-router-go-agent >/dev/null 2>&1; then
             ok "Node agent on delphi: active"
         else
             err "Node agent on delphi: failed"

@@ -29,6 +29,10 @@ app = FastAPI(title="LLM Router Dashboard")
 _registry: ModelRegistry | None = None
 _litellm_url: str = "http://localhost:4010"
 _litellm_key: str = "sk-litellm-master"
+# The Go router (post-cutover :4010) serves its own /health + Prometheus
+# /metrics, both unauthenticated. Default assumes the dashboard runs on the
+# same host as the router (euclid).
+_router_url: str = "http://localhost:4010"
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -243,6 +247,104 @@ async def api_models():
         "node_metrics": node_metrics,
         "models": models,
     }
+
+
+def _parse_prometheus(text: str) -> list[tuple[str, dict[str, str], float]]:
+    """Minimal Prometheus text-exposition parser → (name, labels, value) rows.
+
+    Sufficient for the router_* families, whose label values contain no commas.
+    Not a general-purpose parser.
+    """
+    rows: list[tuple[str, dict[str, str], float]] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        try:
+            if "{" in line:
+                name = line[: line.index("{")]
+                labels_str = line[line.index("{") + 1 : line.rindex("}")]
+                rest = line[line.rindex("}") + 1 :].strip()
+                labels = {}
+                for pair in labels_str.split(","):
+                    if "=" not in pair:
+                        continue
+                    k, v = pair.split("=", 1)
+                    labels[k.strip()] = v.strip().strip('"')
+            else:
+                name, rest = line.rsplit(None, 1)
+                labels = {}
+            value = float(rest.split()[0])
+        except (ValueError, IndexError):
+            continue
+        rows.append((name, labels, value))
+    return rows
+
+
+@app.get("/api/router-metrics")
+async def router_metrics():
+    """Summarise the Go router's own request metrics from /health + /metrics.
+
+    Both endpoints are unauthenticated on the Go router. The values are
+    cumulative counters since router start; the frontend derives req/s and
+    tok/s from deltas between polls.
+    """
+    result: dict = {"reachable": False}
+    try:
+        async with httpx.AsyncClient(timeout=1.5) as client:
+            health_resp, metrics_resp = await asyncio.gather(
+                client.get(f"{_router_url}/health"),
+                client.get(f"{_router_url}/metrics"),
+                return_exceptions=True,
+            )
+        if isinstance(health_resp, Exception) or health_resp.status_code != 200:
+            return result
+        h = health_resp.json()
+        result.update(
+            reachable=True,
+            version=h.get("version"),
+            uptime_seconds=h.get("uptime_seconds"),
+            mode=h.get("mode"),
+            models=h.get("models"),
+            models_by_class=h.get("models_by_class", {}),
+        )
+
+        total = errors = dur_sum = dur_count = tok_prompt = tok_completion = 0.0
+        by_status: dict[str, int] = {}
+        by_model: dict[str, int] = {}
+        if not isinstance(metrics_resp, Exception) and metrics_resp.status_code == 200:
+            for name, labels, value in _parse_prometheus(metrics_resp.text):
+                if name == "router_requests_total":
+                    total += value
+                    status = labels.get("status", "")
+                    by_status[status] = by_status.get(status, 0) + int(value)
+                    if status.isdigit() and int(status) >= 400:
+                        errors += value
+                    model = labels.get("model", "?")
+                    by_model[model] = by_model.get(model, 0) + int(value)
+                elif name == "router_request_duration_seconds_sum":
+                    dur_sum += value
+                elif name == "router_request_duration_seconds_count":
+                    dur_count += value
+                elif name == "router_upstream_tokens_total":
+                    kind = labels.get("kind")
+                    if kind == "prompt":
+                        tok_prompt += value
+                    elif kind == "completion":
+                        tok_completion += value
+
+        result.update(
+            total_requests=int(total),
+            errors=int(errors),
+            by_status=by_status,
+            top_models=sorted(by_model.items(), key=lambda kv: kv[1], reverse=True)[:6],
+            tokens_prompt=int(tok_prompt),
+            tokens_completion=int(tok_completion),
+            avg_latency_ms=round(dur_sum / dur_count * 1000, 1) if dur_count else None,
+        )
+    except Exception:
+        pass
+    return result
 
 
 DASHBOARD_HTML = """\
@@ -512,6 +614,10 @@ const SPARK_MAX = 60; // ~2 min at 2s intervals
 // Last full data from /api/models (refreshed every 30s)
 let lastData = null;
 
+// Previous router-metrics sample — used to derive req/s + tok/s from the
+// cumulative counters between polls.
+let routerPrev = null;
+
 function updateHistory(nm) {
   for (const [name, m] of Object.entries(nm)) {
     if (!nodeHistory[name]) nodeHistory[name] = {vram: [], gpu: []};
@@ -536,10 +642,30 @@ async function load() {
     const r = await fetch('/api/models');
     lastData = await r.json();
     updateHistory(lastData.node_metrics || {});
+    await fetchRouterMetrics();
     el.innerHTML = render(lastData);
   } catch (e) {
     el.innerHTML = `<p class="error">Failed to load: ${e.message}</p>`;
   }
+}
+
+async function fetchRouterMetrics() {
+  if (!lastData) return;
+  try {
+    const rr = await fetch('/api/router-metrics');
+    const rd = await rr.json();
+    if (rd && rd.reachable) {
+      const now = Date.now() / 1000;
+      const tokTotal = (rd.tokens_prompt || 0) + (rd.tokens_completion || 0);
+      if (routerPrev && now > routerPrev.ts) {
+        const dt = now - routerPrev.ts;
+        rd.reqPerSec = Math.max(0, (rd.total_requests - routerPrev.total) / dt);
+        rd.tokPerSec = Math.max(0, (tokTotal - routerPrev.tok) / dt);
+      }
+      routerPrev = { total: rd.total_requests, tok: tokTotal, ts: now };
+    }
+    lastData.router = rd;
+  } catch (_) { /* keep previous router data on a failed poll */ }
 }
 
 async function pollMetrics() {
@@ -571,6 +697,7 @@ async function pollMetrics() {
       m.total_requests = reqs.total_requests || 0;
     }
     updateHistory(nm);
+    await fetchRouterMetrics();
     document.getElementById('content').innerHTML = render(lastData);
   } catch (_) { /* next poll will retry */ }
 }
@@ -650,6 +777,15 @@ function vramBarColor(pct) {
   return 'green';
 }
 
+function fmtUptime(s) {
+  if (s == null) return '?';
+  s = Math.floor(s);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
 function modelType(m) {
   // Determine display type for a model
   const id = m.id, tags = m.tags || [], caps = m.capabilities || [];
@@ -710,9 +846,51 @@ function render(data) {
         <div class="stat-label">Fleet VRAM</div></div>
     </div>`;
 
-  // Connection info
+  // Router (Go) request metrics — live counters from the router's own
+  // /health + /metrics. Sits up top; the live Nodes section follows directly.
+  const rt = data.router;
+  if (rt && rt.reachable) {
+    const errPct = rt.total_requests > 0 ? (rt.errors / rt.total_requests * 100).toFixed(1) : '0.0';
+    const reqps = rt.reqPerSec != null ? (rt.reqPerSec >= 10 ? rt.reqPerSec.toFixed(0) : rt.reqPerSec.toFixed(1)) : '-';
+    const tokps = rt.tokPerSec != null ? rt.tokPerSec.toFixed(0) : '-';
+    const avgLat = rt.avg_latency_ms != null ? rt.avg_latency_ms.toFixed(0) : '-';
+    const totalTok = (rt.tokens_prompt || 0) + (rt.tokens_completion || 0);
+    const topModels = (rt.top_models || []).slice(0, 5)
+      .map(([m, n]) => `${m} <span style="color:var(--text-dim)">${n}</span>`).join(' · ')
+      || '<span style="color:var(--text-dim)">no traffic since restart</span>';
+    html += `
+      <div class="section-title">Router</div>
+      <div class="nodes">
+        <div class="node-card">
+          <div class="node-name">llm-router-go <span class="badge badge-on">${rt.version || '?'}</span></div>
+          <div class="node-detail" style="margin-top:0.4rem">mode <strong>${rt.mode || '?'}</strong> · up ${fmtUptime(rt.uptime_seconds)}</div>
+          <div class="node-detail">${rt.models || 0} models active</div>
+        </div>
+        <div class="node-card">
+          <div class="node-name">Requests</div>
+          <div class="metric-row"><span class="metric-label">total</span><span class="vram-text"><strong>${(rt.total_requests || 0).toLocaleString()}</strong></span></div>
+          <div class="metric-row"><span class="metric-label">errors</span><span class="vram-text">${rt.errors || 0} <span style="color:var(--text-dim)">(${errPct}%)</span></span></div>
+          <div class="metric-row"><span class="metric-label">rate</span><span class="vram-text"><strong>${reqps}</strong> req/s</span></div>
+        </div>
+        <div class="node-card">
+          <div class="node-name">Throughput</div>
+          <div class="metric-row"><span class="metric-label">tokens</span><span class="vram-text"><strong>${totalTok.toLocaleString()}</strong></span></div>
+          <div class="metric-row"><span class="metric-label">rate</span><span class="vram-text"><strong>${tokps}</strong> tok/s</span></div>
+          <div class="metric-row"><span class="metric-label">avg latency</span><span class="vram-text">${avgLat} ms</span></div>
+        </div>
+        <div class="node-card" style="flex:2">
+          <div class="node-name">Top models <span style="color:var(--text-dim);font-weight:400">by requests</span></div>
+          <div class="node-detail" style="margin-top:0.4rem;line-height:1.7">${topModels}</div>
+        </div>
+      </div>`;
+  }
+
+  // Connection / Apps / Aliases are reference material: build them into
+  // `lowerHtml` and append AFTER the live Nodes + Models sections, so the
+  // operational view sits at the top of the page.
+  let lowerHtml = '';
   const publicUrl = 'https://llm.bcc.sh';
-  html += `
+  lowerHtml += `
     <div class="section-title">Connection</div>
     <div class="nodes">
       <div class="node-card" style="flex:2">
@@ -742,7 +920,7 @@ function render(data) {
     </div>`;
 
   // Quick-launch app links
-  html += `
+  lowerHtml += `
     <div class="section-title">Apps</div>
     <div class="nodes">
       <div class="node-card" style="cursor:default; display:flex; gap:1rem; flex-wrap:wrap; align-items:center; padding:0.75rem 1.25rem">
@@ -760,16 +938,17 @@ function render(data) {
       aliasItems.push({ name: a, model: m.id, type: modelType(m).label });
     }
   }
-  html += `
-    <div class="section-title">Model Aliases</div>
-    <div class="alias-list" style="grid-template-columns: repeat(4, 1fr)">`;
+  lowerHtml += `
+    <details class="alias-details">
+    <summary class="section-title" style="cursor:pointer;user-select:none">Model Aliases <span style="color:var(--text-dim);font-weight:400;font-size:0.8rem">(${aliasItems.length}, click to expand)</span></summary>
+    <div class="alias-list" style="grid-template-columns: repeat(4, 1fr); margin-top:0.5rem">`;
   for (const a of aliasItems) {
-    html += `<div class="alias-item">
+    lowerHtml += `<div class="alias-item">
       <span class="alias-name">${a.name}</span>
       <span class="alias-desc">${a.model}</span>
     </div>`;
   }
-  html += `</div>`;
+  lowerHtml += `</div></details>`;
 
   // Nodes
   html += `<div class="section-title">Nodes</div><div class="nodes">`;
@@ -1006,6 +1185,8 @@ function render(data) {
   }
   html += `</tbody></table>`;
 
+  // Reference sections (Connection / Apps / Aliases) below the live data.
+  html += lowerHtml;
   return html;
 }
 
@@ -1022,11 +1203,13 @@ def create_dashboard_app(
     registry: ModelRegistry,
     litellm_url: str = "http://localhost:4010",
     litellm_key: str = "sk-litellm-master",
+    router_url: str = "http://localhost:4010",
 ) -> FastAPI:
-    global _registry, _litellm_url, _litellm_key
+    global _registry, _litellm_url, _litellm_key, _router_url
     _registry = registry
     _litellm_url = litellm_url
     _litellm_key = litellm_key
+    _router_url = router_url
     return app
 
 
@@ -1039,12 +1222,14 @@ def create_dashboard_app(
 )
 @click.option("--litellm-url", default="http://localhost:4010", help="LiteLLM proxy URL")
 @click.option("--litellm-key", default="sk-litellm-master", help="LiteLLM API key")
+@click.option("--router-url", default="http://localhost:4010", help="Go router URL for request metrics")
 @click.option("--host", default="0.0.0.0", help="Bind address")
 @click.option("--port", default=4011, type=int, help="Bind port")
 def cli(
     registry: Path | None,
     litellm_url: str,
     litellm_key: str,
+    router_url: str,
     host: str,
     port: int,
 ) -> None:
@@ -1054,7 +1239,7 @@ def cli(
         format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
     )
     reg = load_registry(registry)
-    create_dashboard_app(reg, litellm_url, litellm_key)
+    create_dashboard_app(reg, litellm_url, litellm_key, router_url)
     logger.info(f"Dashboard at http://{host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="info")
 

@@ -18,11 +18,6 @@ nodes:
     gpu: nvidia
     vram_gb: 128  # GB10 unified memory
     agent_port: 8100
-    services:
-      comfyui:
-        type: comfyui
-        port: 8188
-        label: ComfyUI
   euclid:
     host: euclid.local  # dashboard runs here and self-swaps this to 127.0.0.1; service api_bases below use the LAN IP
     gpu: intel

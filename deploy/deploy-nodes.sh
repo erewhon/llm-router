@@ -10,7 +10,7 @@
 set -euo pipefail
 
 PROJ="/home/erewhon/Projects/erewhon/llm-router"
-RSYNC_OPTS=(-av --delete --exclude='.git' --exclude='__pycache__' --exclude='.venv')
+RSYNC_OPTS=(-av --delete --exclude='.git' --exclude='.jj' --exclude='__pycache__' --exclude='.venv')
 
 # GPU nodes run node agents
 AGENT_NODES=(archimedes.local hypatia.local euclid.local)

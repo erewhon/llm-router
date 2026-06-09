@@ -749,7 +749,6 @@ function render(data) {
         <a href="https://grafana.bcc.sh" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">Grafana</a>
         <a href="https://llm-dashboard.bcc.sh" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">Dashboard</a>
         <a href="http://192.168.42.159:5403" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ACE-Step Music</a>
-        <a href="http://hypatia.local:8188" target="_blank" style="color:var(--accent);text-decoration:none;font-size:0.85rem;font-weight:500">ComfyUI</a>
       </div>
     </div>`;
 
@@ -837,7 +836,7 @@ function render(data) {
         </div>`;
     }
 
-    // Services (ComfyUI, etc.)
+    // Per-node co-located services (none configured currently)
     const svcs = m.services || [];
     for (const svc of svcs) {
       html += `<div style="margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--border)">`;

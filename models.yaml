@@ -737,25 +737,10 @@ models:
       - image_gen
 
   # --- External models (OpenCode Zen) ---
+  # Synced to the account's enabled set 2026-06-10 (19 models, re-pulled
+  # from the authenticated /v1/models). Pricing per 1M tokens from Zen docs.
 
-  # Free tier
-  nemotron-3-super-free:
-    hf_repo: nemotron-3-super-free
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    aliases:
-      - nemotron
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - free
-    input_cost_per_million: 0
-    output_cost_per_million: 0
-
+  # Free tier (zero cost)
   big-pickle:
     hf_repo: big-pickle
     backend: external
@@ -771,14 +756,14 @@ models:
     input_cost_per_million: 0
     output_cost_per_million: 0
 
-  minimax-m2.5-free:
-    hf_repo: minimax-m2.5-free
+  nemotron-3-ultra-free:
+    hf_repo: nemotron-3-ultra-free
     backend: external
     api_base: https://opencode.ai/zen/v1
     api_key: OPENCODE_ZEN_API_KEY
     always_on: true
     aliases:
-      - m2.5
+      - nemotron-ultra
     capabilities:
       - text
       - tool_calling
@@ -787,6 +772,200 @@ models:
       - free
     input_cost_per_million: 0
     output_cost_per_million: 0
+
+  minimax-m3-free:
+    hf_repo: minimax-m3-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - m3
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
+
+  deepseek-v4-flash-free:
+    hf_repo: deepseek-v4-flash-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
+
+  qwen3.6-plus-free:
+    hf_repo: qwen3.6-plus-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
+
+  north-mini-code-free:
+    hf_repo: north-mini-code-free
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - free
+    input_cost_per_million: 0
+    output_cost_per_million: 0
+
+  # Paid tier (per-1M USD from Zen docs, 2026-06-10)
+  claude-fable-5:
+    hf_repo: claude-fable-5
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - fable
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 10.0
+    output_cost_per_million: 50.0
+
+  claude-opus-4-8:
+    hf_repo: claude-opus-4-8
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - opus
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 5.0
+    output_cost_per_million: 25.0
+
+  claude-sonnet-4-6:
+    hf_repo: claude-sonnet-4-6
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 3.0
+    output_cost_per_million: 15.0
+
+  claude-haiku-4-5:
+    hf_repo: claude-haiku-4-5
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 1.0
+    output_cost_per_million: 5.0
+
+  gpt-5.5-pro:
+    hf_repo: gpt-5.5-pro
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 30.0
+    output_cost_per_million: 180.0
+
+  gpt-5.4-nano:
+    hf_repo: gpt-5.4-nano
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 0.2
+    output_cost_per_million: 1.25
+
+  deepseek-v4-pro:
+    hf_repo: deepseek-v4-pro
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - deepseek
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 1.74
+    output_cost_per_million: 3.48
+
+  deepseek-v4-flash:
+    hf_repo: deepseek-v4-flash
+    backend: external
+    api_base: https://opencode.ai/zen/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - paid
+    input_cost_per_million: 0.14
+    output_cost_per_million: 0.28
 
   qwen3.6-plus:
     hf_repo: qwen3.6-plus
@@ -803,60 +982,11 @@ models:
     tags:
       - zen
       - paid
-    input_cost_per_million: 0.50
-    output_cost_per_million: 3.00
+    input_cost_per_million: 0.5
+    output_cost_per_million: 3.0
 
-  # Paid tier
-  claude-opus-4-6:
-    hf_repo: claude-opus-4-6
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - vision
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 5.00
-    output_cost_per_million: 25.00
-
-  claude-sonnet-4-6:
-    hf_repo: claude-sonnet-4-6
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - vision
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 3.00
-    output_cost_per_million: 15.00
-
-  claude-haiku-4-5:
-    hf_repo: claude-haiku-4-5
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - vision
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 1.00
-    output_cost_per_million: 5.00
-
-  glm-5:
-    hf_repo: glm-5
+  qwen3.5-plus:
+    hf_repo: qwen3.5-plus
     backend: external
     api_base: https://opencode.ai/zen/v1
     api_key: OPENCODE_ZEN_API_KEY
@@ -867,25 +997,27 @@ models:
     tags:
       - zen
       - paid
-    input_cost_per_million: 1.00
-    output_cost_per_million: 3.20
+    input_cost_per_million: 0.2
+    output_cost_per_million: 1.2
 
-  kimi-k2.5:
-    hf_repo: kimi-k2.5
+  minimax-m2.7:
+    hf_repo: minimax-m2.7
     backend: external
     api_base: https://opencode.ai/zen/v1
     api_key: OPENCODE_ZEN_API_KEY
     always_on: true
     aliases:
-      - k2.5
+      - m2.7
+      - zen-fast
+      - mini
     capabilities:
       - text
       - tool_calling
     tags:
       - zen
       - paid
-    input_cost_per_million: 0.60
-    output_cost_per_million: 3.00
+    input_cost_per_million: 0.3
+    output_cost_per_million: 1.2
 
   kimi-k2.6:
     hf_repo: kimi-k2.6
@@ -905,26 +1037,7 @@ models:
       - zen
       - paid
     input_cost_per_million: 0.95
-    output_cost_per_million: 4.00
-
-  minimax-m2.7:
-    hf_repo: minimax-m2.7
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    aliases:
-      - m2.7
-      - zen-fast
-      - mini
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 0.30
-    output_cost_per_million: 1.20
+    output_cost_per_million: 4.0
 
   glm-5.1:
     hf_repo: glm-5.1
@@ -938,5 +1051,5 @@ models:
     tags:
       - zen
       - paid
-    input_cost_per_million: 1.40
-    output_cost_per_million: 4.40
+    input_cost_per_million: 1.4
+    output_cost_per_million: 4.4

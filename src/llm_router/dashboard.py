@@ -10,6 +10,7 @@ Or as a service:  see deploy/litellm-dashboard.service
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import socket
 from pathlib import Path
@@ -18,7 +19,8 @@ import click
 import httpx
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
+from pydantic import BaseModel
 
 from llm_router.config import ModelRegistry, load_registry
 
@@ -366,6 +368,66 @@ async def router_metrics():
     return result
 
 
+class ChatRequest(BaseModel):
+    """A single quick-chat turn — one model, one user message, no system prompt."""
+
+    model: str
+    message: str
+
+
+@app.post("/api/chat")
+async def api_chat(req: ChatRequest):
+    """Proxy one user message to the Go router as a streaming chat completion.
+
+    The dashboard relays the raw SSE byte stream straight through so the
+    browser can time each chunk itself (TTFT etc.); we add only the router's
+    bearer token (the router requires auth, the browser shouldn't hold the
+    key). No system prompt is sent — just the single user turn. include_usage
+    asks the backend for exact token counts in the final chunk; the client
+    falls back to counting deltas if a backend omits it.
+    """
+    payload = {
+        "model": req.model,
+        "messages": [{"role": "user", "content": req.message}],
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    headers = {"Authorization": f"Bearer {_litellm_key}"}
+    # connect/write/pool are short; read is the gap *between* streamed chunks,
+    # not total time — 120s comfortably covers CPU-model prefill (e.g. hekaton
+    # MiniMax M2.7) before the first token without capping total generation.
+    timeout = httpx.Timeout(connect=15.0, read=120.0, write=15.0, pool=15.0)
+
+    async def relay():
+        try:
+            url = f"{_router_url}/v1/chat/completions"
+            async with (
+                httpx.AsyncClient(timeout=timeout) as client,
+                client.stream("POST", url, json=payload, headers=headers) as resp,
+            ):
+                if resp.status_code != 200:
+                    body = (await resp.aread()).decode("utf-8", "replace")[:500]
+                    err = json.dumps({"error": f"router {resp.status_code}: {body}"})
+                    yield f"data: {err}\n\n".encode()
+                    return
+                async for chunk in resp.aiter_raw():
+                    if chunk:
+                        yield chunk
+        except Exception as e:
+            # Surface any upstream failure (connect error, timeout, etc.) to the
+            # UI as an SSE error frame instead of a dead stream.
+            err = json.dumps({"error": f"{type(e).__name__}: {e}"})
+            yield f"data: {err}\n\n".encode()
+
+    return StreamingResponse(
+        relay(),
+        media_type="text/event-stream",
+        # Defeat proxy buffering (Caddy/oauth2-proxy in front) so chunks — and
+        # thus the measured TTFT — arrive incrementally rather than all at once.
+        headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"},
+    )
+
+
 DASHBOARD_HTML = """\
 <!DOCTYPE html>
 <html lang="en">
@@ -494,6 +556,41 @@ DASHBOARD_HTML = """\
     font-size: 0.8rem; color: var(--text-dim);
     margin-top: 0.5rem; font-style: italic;
   }
+
+  /* Quick-chat dialog */
+  .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
+  .chat-open-btn {
+    flex-shrink: 0; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+    color: var(--accent); background: rgba(108,140,255,0.12);
+    border: 1px solid var(--accent); border-radius: 8px; padding: 0.5rem 0.9rem;
+  }
+  .chat-open-btn:hover { background: rgba(108,140,255,0.22); }
+  .chat-dialog {
+    width: min(680px, 92vw); max-height: 86vh; padding: 0;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface); color: var(--text);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+  }
+  .chat-dialog::backdrop { background: rgba(0,0,0,0.55); }
+  .chat-head { display: flex; align-items: center; gap: 0.6rem; padding: 0.85rem 1rem; border-bottom: 1px solid var(--border); }
+  .chat-head strong { font-size: 0.95rem; flex-shrink: 0; }
+  .chat-model { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.8rem; }
+  .chat-x { cursor: pointer; background: none; border: none; color: var(--text-dim); font-size: 1.1rem; line-height: 1; }
+  .chat-x:hover { color: var(--text); }
+  .chat-output { padding: 1rem; overflow-y: auto; min-height: 110px; max-height: 46vh; font-size: 0.9rem; line-height: 1.5; }
+  .chat-placeholder { color: var(--text-dim); font-style: italic; }
+  .chat-answer { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .chat-err { color: var(--red); white-space: pre-wrap; }
+  .chat-reasoning { margin-bottom: 0.7rem; border: 1px solid var(--border); border-radius: 6px; padding: 0.3rem 0.6rem; }
+  .chat-reasoning summary { cursor: pointer; color: var(--text-dim); font-size: 0.78rem; }
+  .chat-reasoning-body { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-dim); font-size: 0.82rem; margin-top: 0.4rem; }
+  .chat-metrics { padding: 0.45rem 1rem; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 0.72rem; font-variant-numeric: tabular-nums; min-height: 1rem; }
+  .chat-inputrow { display: flex; gap: 0.5rem; padding: 0.8rem 1rem 1rem; border-top: 1px solid var(--border); }
+  .chat-input { flex: 1; resize: vertical; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.6rem; font-size: 0.85rem; font-family: inherit; }
+  .chat-send, .chat-stop { flex-shrink: 0; cursor: pointer; font-weight: 600; font-size: 0.85rem; border-radius: 6px; padding: 0 1rem; }
+  .chat-send { background: var(--accent); color: #fff; border: 1px solid var(--accent); }
+  .chat-send:disabled { opacity: 0.5; cursor: default; }
+  .chat-stop { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid var(--red); }
 
   /* Models table */
   table {
@@ -624,10 +721,30 @@ DASHBOARD_HTML = """\
 </style>
 </head>
 <body>
-  <h1>LLM Router</h1>
-  <p class="subtitle">Model registry and routing status</p>
+  <div class="page-header">
+    <div>
+      <h1>LLM Router</h1>
+      <p class="subtitle">Model registry and routing status</p>
+    </div>
+    <button class="chat-open-btn" onclick="openChat()">&#128172; Chat</button>
+  </div>
 
   <div id="content"><p class="loading">Loading...</p></div>
+
+  <dialog id="chatDialog" class="chat-dialog">
+    <div class="chat-head">
+      <strong>Quick Chat</strong>
+      <select id="chatModel" class="chat-model"></select>
+      <button class="chat-x" onclick="closeChat()" title="Close">&#10005;</button>
+    </div>
+    <div id="chatOutput" class="chat-output"><div class="chat-placeholder">Pick a model, type a message, &#8984;/Ctrl+Enter to send. No system prompt.</div></div>
+    <div id="chatMetrics" class="chat-metrics"></div>
+    <div class="chat-inputrow">
+      <textarea id="chatInput" class="chat-input" rows="2" placeholder="Message&#8230;"></textarea>
+      <button id="chatSend" class="chat-send" onclick="sendChat()">Send</button>
+      <button id="chatStop" class="chat-stop" onclick="stopChat()" style="display:none">Stop</button>
+    </div>
+  </dialog>
 
 <script>
 // Sparkline history per node: { vram_pct: [], gpu_busy_pct: [] }
@@ -1238,6 +1355,170 @@ function render(data) {
 load();
 setInterval(load, 30000);       // full refresh (LiteLLM + nodes)
 setInterval(pollMetrics, 2000);  // fast GPU metrics only
+
+// ----------------------------------------------------------------------------
+// Quick Chat: one user message -> one model, streamed, with TTFT/tok/s metrics.
+// Non-chat models (embeddings/rerank/stt/tts/image/music) are filtered out the
+// same way modelType() classifies them by tag.
+// ----------------------------------------------------------------------------
+let chatAbort = null;
+
+function chatCapable(m) {
+  if (!m.enabled) return false;
+  const t = m.tags || [];
+  const nonChat = ['embedding','reranker','stt','tts','image_gen','image_edit','music_gen'];
+  return !nonChat.some(x => t.includes(x));
+}
+
+function openChat() {
+  const sel = document.getElementById('chatModel');
+  const models = ((lastData && lastData.models) ? lastData.models : []).filter(chatCapable);
+  sel.innerHTML = models.length
+    ? models.map(m => {
+        const where = m.head_node ? ' · ' + m.head_node
+                    : (m.backend === 'external' ? ' · external' : '');
+        return '<option value="' + m.id + '">' + m.id + where + '</option>';
+      }).join('')
+    : '<option value="">(model list still loading…)</option>';
+  const prev = localStorage.getItem('chatModel');
+  if (prev && models.some(m => m.id === prev)) sel.value = prev;
+  document.getElementById('chatDialog').showModal();
+  document.getElementById('chatInput').focus();
+}
+
+function closeChat() {
+  stopChat();
+  document.getElementById('chatDialog').close();
+}
+
+function stopChat() {
+  if (chatAbort) { chatAbort.abort(); chatAbort = null; }
+  const send = document.getElementById('chatSend');
+  const stop = document.getElementById('chatStop');
+  send.disabled = false; send.style.display = ''; stop.style.display = 'none';
+}
+
+async function sendChat() {
+  const model = document.getElementById('chatModel').value;
+  const input = document.getElementById('chatInput');
+  const msg = input.value.trim();
+  if (!model || !msg) return;
+  localStorage.setItem('chatModel', model);
+
+  const out = document.getElementById('chatOutput');
+  const metricsEl = document.getElementById('chatMetrics');
+  out.innerHTML = '';
+  const reasoningWrap = document.createElement('details');
+  reasoningWrap.className = 'chat-reasoning';
+  reasoningWrap.innerHTML = '<summary>Reasoning</summary><div class="chat-reasoning-body"></div>';
+  const reasoningBody = reasoningWrap.querySelector('.chat-reasoning-body');
+  const answer = document.createElement('div');
+  answer.className = 'chat-answer';
+  out.appendChild(answer);
+  metricsEl.textContent = '';
+
+  const send = document.getElementById('chatSend');
+  const stop = document.getElementById('chatStop');
+  send.disabled = true; send.style.display = 'none'; stop.style.display = '';
+
+  const t0 = performance.now();
+  let tFirst = null, deltaTokens = 0, usageTokens = null, promptTokens = null;
+  let answerText = '', reasoningText = '', gotReasoning = false;
+  chatAbort = new AbortController();
+
+  const fmtMetrics = (done) => {
+    const now = performance.now();
+    const elapsed = (now - t0) / 1000;
+    const ttft = (tFirst !== null) ? (tFirst - t0) / 1000 : null;
+    const toks = (usageTokens !== null) ? usageTokens : deltaTokens;
+    const genWindow = ((tFirst !== null) ? (now - tFirst) : 0) / 1000;
+    const tps = (toks > 0 && genWindow > 0.01) ? (toks / genWindow) : null;
+    const parts = [
+      'TTFT ' + (ttft !== null ? ttft.toFixed(2) + 's' : '—'),
+      (tps !== null ? tps.toFixed(1) : '—') + ' tok/s',
+      toks + ' tok' + (usageTokens === null ? ' (est)' : ''),
+      elapsed.toFixed(1) + 's elapsed',
+    ];
+    if (promptTokens !== null) parts.push(promptTokens + ' prompt');
+    metricsEl.textContent = parts.join('  ·  ') + (done ? '' : '  …');
+  };
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({model: model, message: msg}),
+      signal: chatAbort.signal,
+    });
+    if (!resp.ok || !resp.body) throw new Error('HTTP ' + resp.status);
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    streamLoop:
+    while (true) {
+      const r = await reader.read();
+      if (r.done) break;
+      buf += dec.decode(r.value, {stream: true});
+      let idx;
+      while ((idx = buf.indexOf('\\n\\n')) !== -1) {
+        const frame = buf.slice(0, idx); buf = buf.slice(idx + 2);
+        for (const line of frame.split('\\n')) {
+          const s = line.trim();
+          if (!s.startsWith('data:')) continue;
+          const data = s.slice(5).trim();
+          if (data === '[DONE]') continue;
+          let obj;
+          try { obj = JSON.parse(data); } catch (e) { continue; }
+          if (obj.error) {
+            answer.innerHTML = '<span class="chat-err">' + obj.error + '</span>';
+            chatAbort.abort();
+            break streamLoop;
+          }
+          const choice = (obj.choices && obj.choices[0]) || {};
+          const delta = choice.delta || {};
+          if (delta.reasoning_content) {
+            if (tFirst === null) tFirst = performance.now();
+            deltaTokens++;
+            reasoningText += delta.reasoning_content;
+            if (!gotReasoning) { gotReasoning = true; out.insertBefore(reasoningWrap, answer); }
+            reasoningBody.textContent = reasoningText;
+          }
+          if (delta.content) {
+            if (tFirst === null) tFirst = performance.now();
+            deltaTokens++;
+            answerText += delta.content;
+            answer.textContent = answerText;
+          }
+          if (obj.usage) {
+            if (obj.usage.completion_tokens != null) usageTokens = obj.usage.completion_tokens;
+            if (obj.usage.prompt_tokens != null) promptTokens = obj.usage.prompt_tokens;
+          }
+          fmtMetrics(false);
+          out.scrollTop = out.scrollHeight;
+        }
+      }
+    }
+    fmtMetrics(true);
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      fmtMetrics(true);
+      metricsEl.textContent += ' (stopped)';
+    } else {
+      if (!answerText) answer.innerHTML = '<span class="chat-err">' + ((e && e.message) || e) + '</span>';
+      fmtMetrics(true);
+    }
+  } finally {
+    stopChat();
+  }
+}
+
+// Cmd/Ctrl+Enter sends; Esc closes (native <dialog> behaviour handles Esc).
+document.addEventListener('keydown', (e) => {
+  const dlg = document.getElementById('chatDialog');
+  if (dlg && dlg.open && (e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+    e.preventDefault(); sendChat();
+  }
+});
 </script>
 </body>
 </html>

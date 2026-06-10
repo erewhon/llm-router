@@ -61,6 +61,11 @@ async def _fetch_node_metrics(
         "vram_total_gb": None,
         "vram_pct": None,
         "gpu_busy_pct": None,
+        # System RAM (all nodes report it). For CPU-only nodes this is the
+        # primary memory signal the dashboard shows in place of VRAM.
+        "ram_used_gb": None,
+        "ram_total_gb": None,
+        "ram_pct": None,
         "models": [],
     }
     try:
@@ -93,6 +98,14 @@ async def _fetch_node_metrics(
                         round(used / total * 100, 1) if total > 0 else 0
                     )
                 result["gpu_busy_pct"] = h.get("gpu_busy_pct")
+                ram_used = h.get("ram_used_gb")
+                ram_total = h.get("ram_total_gb")
+                if ram_used is not None and ram_total is not None:
+                    result["ram_used_gb"] = round(ram_used, 1)
+                    result["ram_total_gb"] = round(ram_total, 1)
+                    result["ram_pct"] = (
+                        round(ram_used / ram_total * 100, 1) if ram_total > 0 else 0
+                    )
                 result["services"] = h.get("services", [])
                 result["disk_free_gb"] = h.get("disk_free_gb")
                 result["disk_total_gb"] = h.get("disk_total_gb")
@@ -131,6 +144,9 @@ async def node_metrics():
                 "vram_total_gb": None,
                 "vram_pct": None,
                 "gpu_busy_pct": None,
+                "ram_used_gb": None,
+                "ram_total_gb": None,
+                "ram_pct": None,
                 "models": [],
             }
         else:
@@ -158,6 +174,9 @@ async def api_models():
                 "vram_total_gb": None,
                 "vram_pct": None,
                 "gpu_busy_pct": None,
+                "ram_used_gb": None,
+                "ram_total_gb": None,
+                "ram_pct": None,
                 "models": [],
             }
         else:
@@ -407,8 +426,9 @@ DASHBOARD_HTML = """\
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 1rem 1.25rem;
-    min-width: 200px;
-    flex: 1;
+    min-width: 230px;
+    flex: 1 1 230px;
+    overflow-wrap: anywhere;
   }
   .node-card { cursor: pointer; transition: border-color 0.2s; }
   .node-card:hover { border-color: var(--accent); }
@@ -443,6 +463,9 @@ DASHBOARD_HTML = """\
   .metric-row {
     display: flex; align-items: center; gap: 0.4rem;
     margin-top: 0.4rem;
+    /* When a card is narrow (e.g. 5 nodes in one row), let the value text
+       drop below the bar instead of overflowing the card's right edge. */
+    flex-wrap: wrap; row-gap: 0.2rem;
   }
   .metric-label {
     font-size: 0.65rem; font-weight: 600;
@@ -622,8 +645,12 @@ function updateHistory(nm) {
   for (const [name, m] of Object.entries(nm)) {
     if (!nodeHistory[name]) nodeHistory[name] = {vram: [], gpu: []};
     if (m.reachable) {
-      if (m.vram_pct !== null) {
-        nodeHistory[name].vram.push(m.vram_pct);
+      // memory-utilisation history: VRAM on GPU nodes, RAM on CPU-only nodes
+      const memPct = (m.vram_pct !== null && m.vram_pct !== undefined)
+        ? m.vram_pct
+        : ((m.ram_pct !== null && m.ram_pct !== undefined) ? m.ram_pct : null);
+      if (memPct !== null) {
+        nodeHistory[name].vram.push(memPct);
         if (nodeHistory[name].vram.length > SPARK_MAX)
           nodeHistory[name].vram.shift();
       }
@@ -959,10 +986,28 @@ function render(data) {
     html += `<div class="node-card${isActive ? ' active' : ''}" onclick="selectNode('${name}')">
         <div class="node-name">${name}</div>
         <div class="node-detail">Host: <span>${n.host}</span></div>
-        <div class="node-detail">GPU: <span>${n.gpu.toUpperCase()}</span>
-          &middot; <span>${n.vram_gb} GB</span></div>`;
+        ${n.gpu === 'none'
+          ? `<div class="node-detail">Compute: <span>CPU</span> &middot; <span>no GPU</span></div>`
+          : `<div class="node-detail">GPU: <span>${n.gpu.toUpperCase()}</span>
+          &middot; <span>${n.vram_gb} GB</span></div>`}`;
 
-    if (reachable && m.vram_pct !== null) {
+    if (reachable && n.gpu === 'none' && m.ram_pct !== null && m.ram_pct !== undefined) {
+      // CPU-only node: RAM is the memory signal in place of VRAM. On a
+      // dedicated inference box this tracks what the loaded LLM is holding.
+      const color = vramBarColor(m.ram_pct);
+      const hist = nodeHistory[name] || {vram:[], gpu:[]};
+      html += `
+        <div class="metric-row">
+          <span class="metric-label">RAM</span>
+          <div class="vram-bar-track">
+            <div class="vram-bar-fill ${color}"
+              style="width:${m.ram_pct}%"></div>
+          </div>
+          <span class="vram-text"><strong>${m.ram_used_gb}</strong>
+            / ${m.ram_total_gb} GB</span>
+          ${sparklineSvg(hist.vram, 'var(--accent)')}
+        </div>`;
+    } else if (reachable && m.vram_pct !== null) {
       const color = vramBarColor(m.vram_pct);
       const hist = nodeHistory[name] || {vram:[], gpu:[]};
       const busy = m.gpu_busy_pct;
@@ -991,7 +1036,7 @@ function render(data) {
         </div>`;
       }
     } else if (reachable) {
-      html += `<div class="node-offline">No GPU metrics</div>`;
+      html += `<div class="node-offline">No metrics</div>`;
     } else {
       html += `<div class="node-offline">Agent offline</div>`;
     }

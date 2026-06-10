@@ -24,7 +24,7 @@ nodes:
     vram_gb: 16  # Arc B50 Pro (Battlemage G21)
     agent_port: 8100
   hekaton:
-    host: 192.168.42.21  # LAN; CPU-only inference node — 4x Xeon E7-4850 v2 (no AVX2), 1.5 TB DDR3
+    host: 192.168.42.20  # LAN (UniFi DHCP reservation); CPU-only inference node — 4x Xeon E7-4850 v2 (no AVX2), 1.5 TB DDR3
     gpu: none            # no discrete GPU yet; planned RTX 6000 Ada / RTX 8000 -> flip to nvidia
     vram_gb: 0
     agent_port: 8100

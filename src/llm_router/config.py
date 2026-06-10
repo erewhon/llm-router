@@ -29,6 +29,9 @@ class GpuType(StrEnum):
     AMD = "amd"
     NVIDIA = "nvidia"
     INTEL = "intel"
+    # CPU-only node (no discrete GPU); the node agent installs no GPU reader.
+    # Flip to a real vendor when a card is added (e.g. hekaton + RTX 6000 Ada).
+    NONE = "none"
 
 
 class ServiceType(StrEnum):

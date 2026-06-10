@@ -23,6 +23,11 @@ nodes:
     gpu: intel
     vram_gb: 16  # Arc B50 Pro (Battlemage G21)
     agent_port: 8100
+  hekaton:
+    host: 192.168.42.21  # LAN; CPU-only inference node — 4x Xeon E7-4850 v2 (no AVX2), 1.5 TB DDR3
+    gpu: none            # no discrete GPU yet; planned RTX 6000 Ada / RTX 8000 -> flip to nvidia
+    vram_gb: 0
+    agent_port: 8100
 
 models:
   gpt-oss-120b:
@@ -157,6 +162,30 @@ models:
     vllm_args:
       tool_call_parser: qwen3_coder
       max_model_len: 262144
+
+  minimax-m2.7-local:
+    # Self-hosted CPU build of MiniMax M2.7 on hekaton (a CPU-only node),
+    # served by a dedicated llama-server (llama.cpp) systemd unit. Distinct
+    # from the Zen-hosted external `minimax-m2.7` further down — same model,
+    # different deployment (this one is free/local but slow; Zen is fast/paid).
+    # backend: vllm because llama-server speaks the same OpenAI /v1/models +
+    # Prometheus /metrics shape the agent's vllm driver probes. hf_repo must
+    # equal llama-server's --alias for state=running detection.
+    hf_repo: unsloth/MiniMax-M2.7-GGUF
+    backend: vllm
+    node: hekaton
+    api_port: 5391
+    vram_gb: 0  # CPU-resident (~141 GB RAM at UD-Q4_K_XL); no VRAM
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - minimax-local
+      - m2.7-local
+    capabilities:
+      - text
+      - tool_calling
+    # No mode tag: hekaton is independent of the Spark mode:big/default swap,
+    # so M2.7 stays available in every mode.
 
   # --- Disabled Spark models (available for spark-mode.sh or manual start) ---
 

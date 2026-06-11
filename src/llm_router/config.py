@@ -50,6 +50,12 @@ class NodeDefinition(BaseModel):
     vram_gb: int
     agent_port: int = 8100
     services: dict[str, ServiceDefinition] = Field(default_factory=dict)
+    # True for unified-memory nodes (e.g. the GB10 Sparks) where system RAM
+    # and GPU VRAM are the same physical pool — /proc/meminfo and nvidia-smi
+    # report identical totals. The dashboard excludes these from the Fleet
+    # CPU RAM aggregate so their memory isn't double-counted against Fleet
+    # VRAM. Discrete-GPU nodes (separate VRAM) and CPU nodes leave this false.
+    unified_memory: bool = False
 
 
 class MultiNodeConfig(BaseModel):

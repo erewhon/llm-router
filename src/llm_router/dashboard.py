@@ -262,6 +262,7 @@ async def api_models():
                 "gpu": node.gpu.value,
                 "vram_gb": node.vram_gb,
                 "agent_port": node.agent_port,
+                "unified_memory": node.unified_memory,
             }
             for name, node in _registry.nodes.items()
         },
@@ -971,6 +972,20 @@ function render(data) {
     }
   }
 
+  // Fleet CPU RAM totals — system RAM (MemTotal/MemAvailable) summed over
+  // nodes whose RAM is a distinct pool from VRAM. Unified-memory nodes (the
+  // GB10 Sparks) are excluded: their /proc/meminfo == nvidia-smi, so their
+  // memory is already in Fleet VRAM. This is whole-system RAM, not model-only
+  // (e.g. hekaton's figure includes ZFS ARC; delphi's includes local VMs).
+  let fleetRamTotal = 0, fleetRamUsed = 0;
+  for (const [name, m] of Object.entries(nm)) {
+    const node = nodes[name] || {};
+    if (m.reachable && m.ram_total_gb && !node.unified_memory) {
+      fleetRamTotal += m.ram_total_gb;
+      fleetRamUsed += m.ram_used_gb || 0;
+    }
+  }
+
   let html = `
     <div class="stats">
       <div class="stat">
@@ -988,6 +1003,9 @@ function render(data) {
       <div class="stat">
         <div class="stat-value">${fleetVramUsed.toFixed(0)}<span style="font-size:0.9rem;color:var(--text-dim)"> / ${fleetVramTotal.toFixed(0)} GB</span></div>
         <div class="stat-label">Fleet VRAM</div></div>
+      <div class="stat">
+        <div class="stat-value">${fleetRamUsed.toFixed(0)}<span style="font-size:0.9rem;color:var(--text-dim)"> / ${fleetRamTotal.toFixed(0)} GB</span></div>
+        <div class="stat-label">Fleet CPU RAM</div></div>
     </div>`;
 
   // Router (Go) request metrics — live counters from the router's own

@@ -13,11 +13,13 @@ nodes:
     gpu: nvidia
     vram_gb: 128  # GB10 unified memory
     agent_port: 8100
+    unified_memory: true  # RAM == VRAM (same pool); excluded from Fleet CPU RAM
   hypatia:
     host: hypatia.local
     gpu: nvidia
     vram_gb: 128  # GB10 unified memory
     agent_port: 8100
+    unified_memory: true  # RAM == VRAM (same pool); excluded from Fleet CPU RAM
   euclid:
     host: euclid.local  # dashboard runs here and self-swaps this to 127.0.0.1; service api_bases below use the LAN IP
     gpu: intel
@@ -186,6 +188,31 @@ models:
       - tool_calling
     # No mode tag: hekaton is independent of the Spark mode:big/default swap,
     # so M2.7 stays available in every mode.
+
+  qwen3-coder-next-local:
+    # Self-hosted CPU build of Qwen3-Coder-Next on hekaton, served by its own
+    # llama-server (llama.cpp) on :5392 alongside the M2.7 unit on :5391.
+    # ~80B Qwen3-Next hybrid (Gated DeltaNet + MoE, ~A3B active) so it decodes
+    # far faster on CPU than the 230B-A10B M2.7; llama-server runs it with
+    # n-gram speculative decoding (--spec-type ngram-map-k4v) for a further
+    # decode boost. Distinct from `qwen3-coder-next-spark` below (the disabled
+    # archimedes FP8/GPU build). backend: vllm because llama-server speaks the
+    # OpenAI /v1/models + Prometheus /metrics shape the agent's vllm driver
+    # probes; hf_repo must equal llama-server's --alias for running detection.
+    hf_repo: unsloth/Qwen3-Coder-Next-GGUF
+    backend: vllm
+    node: hekaton
+    api_port: 5392
+    vram_gb: 0  # CPU-resident (~50 GB RAM at UD-Q4_K_XL + KV); no VRAM
+    always_on: true
+    tool_proxy: false
+    aliases:
+      - coder-next
+      - coder-next-local
+    capabilities:
+      - text
+      - tool_calling
+    # No mode tag: independent of the Spark mode:big/default swap.
 
   # --- Disabled Spark models (available for spark-mode.sh or manual start) ---
 

@@ -764,8 +764,10 @@ models:
       - image_gen
 
   # --- External models (OpenCode Zen) ---
-  # Synced to the account's enabled set 2026-06-10 (19 models, re-pulled
-  # from the authenticated /v1/models). Pricing per 1M tokens from Zen docs.
+  # Reconciled to the account's enabled set 2026-06-16 (13 models; was 19 —
+  # dropped gpt-5.5-pro, gpt-5.4-nano, qwen3.5-plus, minimax-m3-free,
+  # deepseek-v4-flash-free, qwen3.6-plus-free after the user disabled them).
+  # Re-pulled from the authenticated /v1/models. Pricing per 1M tokens from Zen docs.
 
   # Free tier (zero cost)
   big-pickle:
@@ -793,54 +795,6 @@ models:
       - nemotron-ultra
     capabilities:
       - text
-      - tool_calling
-    tags:
-      - zen
-      - free
-    input_cost_per_million: 0
-    output_cost_per_million: 0
-
-  minimax-m3-free:
-    hf_repo: minimax-m3-free
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    aliases:
-      - m3
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - free
-    input_cost_per_million: 0
-    output_cost_per_million: 0
-
-  deepseek-v4-flash-free:
-    hf_repo: deepseek-v4-flash-free
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - free
-    input_cost_per_million: 0
-    output_cost_per_million: 0
-
-  qwen3.6-plus-free:
-    hf_repo: qwen3.6-plus-free
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - vision
       - tool_calling
     tags:
       - zen
@@ -932,36 +886,6 @@ models:
     input_cost_per_million: 1.0
     output_cost_per_million: 5.0
 
-  gpt-5.5-pro:
-    hf_repo: gpt-5.5-pro
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 30.0
-    output_cost_per_million: 180.0
-
-  gpt-5.4-nano:
-    hf_repo: gpt-5.4-nano
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 0.2
-    output_cost_per_million: 1.25
-
   deepseek-v4-pro:
     hf_repo: deepseek-v4-pro
     backend: external
@@ -1012,21 +936,6 @@ models:
     input_cost_per_million: 0.5
     output_cost_per_million: 3.0
 
-  qwen3.5-plus:
-    hf_repo: qwen3.5-plus
-    backend: external
-    api_base: https://opencode.ai/zen/v1
-    api_key: OPENCODE_ZEN_API_KEY
-    always_on: true
-    capabilities:
-      - text
-      - tool_calling
-    tags:
-      - zen
-      - paid
-    input_cost_per_million: 0.2
-    output_cost_per_million: 1.2
-
   minimax-m2.7:
     hf_repo: minimax-m2.7
     backend: external
@@ -1054,9 +963,7 @@ models:
     always_on: true
     aliases:
       - k2.6
-      - coder-hard
       - zen-pro
-      - kimi
     capabilities:
       - text
       - tool_calling
@@ -1080,3 +987,75 @@ models:
       - paid
     input_cost_per_million: 1.4
     output_cost_per_million: 4.4
+
+  # --- External models (OpenCode Go subscription) ---
+  # Flat-rate Go plan (https://opencode.ai/go), SAME api_key as Zen
+  # (OPENCODE_ZEN_API_KEY) but a different base (/zen/go/v1). The Go catalog
+  # can't be filtered per-account, so we define only the few we want here.
+  # Billing is a monthly per-model request quota under the subscription, NOT
+  # per-token → cost left at 0; tagged `go` to distinguish from pay-go Zen.
+  # Added 2026-06-16. Catalog: https://opencode.ai/zen/go/v1/models
+  kimi-k2.7-code:
+    hf_repo: kimi-k2.7-code
+    backend: external
+    api_base: https://opencode.ai/zen/go/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - k2.7
+      - kimi-k2.7
+      - kimi-code
+      - kimi          # repointed from kimi-k2.6 -> k2.7-code (2026-06-16)
+      - coder-hard    # auto-router hard-coding escalation now hits K2.7-Code
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - go
+    input_cost_per_million: 0
+    output_cost_per_million: 0
+
+  minimax-m3:
+    hf_repo: minimax-m3
+    backend: external
+    api_base: https://opencode.ai/zen/go/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - m3
+    capabilities:
+      - text
+      - tool_calling
+    tags:
+      - zen
+      - go
+    input_cost_per_million: 0
+    output_cost_per_million: 0
+
+  # qwen3.7-max — NOT added: on the Go endpoint this model is served ONLY via the
+  # Anthropic `/messages` format (x-api-key auth), NOT the OpenAI-compatible
+  # `/chat/completions` (`oa-compat`) path the router uses. Verified 2026-06-16:
+  # oa-compat returns "Model qwen3.7-max is not supported for format oa-compat";
+  # /messages with x-api-key works (returns Anthropic thinking/content blocks).
+  # Can't be proxied until the router does per-model Anthropic<->OpenAI
+  # translation (or OpenCode adds oa-compat support for it).
+
+  qwen3.7-plus:
+    hf_repo: qwen3.7-plus
+    backend: external
+    api_base: https://opencode.ai/zen/go/v1
+    api_key: OPENCODE_ZEN_API_KEY
+    always_on: true
+    aliases:
+      - qwen-plus
+      - qwen3.7-cloud
+    capabilities:
+      - text
+      - vision
+      - tool_calling
+    tags:
+      - zen
+      - go
+    input_cost_per_million: 0
+    output_cost_per_million: 0

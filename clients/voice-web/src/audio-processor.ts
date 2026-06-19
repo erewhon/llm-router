@@ -42,6 +42,12 @@ class MoshiProcessor extends AudioWorkletProcessor {
         this.initState();
         return;
       }
+      if (event.data.type == "setBuffer") {
+        // Adjust the pre-roll jitter buffer (ms). Larger = smoother over a jittery
+        // network (used for one-way expert TTS); small = low latency (Moshi).
+        this.initialBufferSamples = asSamples(event.data.ms);
+        return;
+      }
       let frame = event.data.frame;
       this.frames.push(frame);
       if (this.currentSamples() >= this.initialBufferSamples && !this.started) {

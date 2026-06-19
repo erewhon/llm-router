@@ -42,6 +42,11 @@ const buildWsUrl = (): string => {
   return url.toString();
 };
 
+// Playback jitter-buffer pre-roll: small for live Moshi (low latency), larger
+// during the one-way expert answer to absorb network jitter / per-sentence gaps.
+const MOSHI_BUFFER_MS = 80;
+const EXPERT_BUFFER_MS = 300;
+
 const phaseFromEvent = (p?: VoiceEvent["phase"]): Phase | null => {
   switch (p) {
     case "trigger":
@@ -105,15 +110,13 @@ export function useVoice() {
       if (ev.model) setModel(ev.model);
       const nextPhase = phaseFromEvent(ev.phase);
       if (nextPhase) setPhase(nextPhase);
-      if (
-        ev.phase === "trigger" ||
-        ev.phase === "thinking" ||
-        ev.phase === "speaking"
-      ) {
+      if (ev.phase === "trigger" || ev.phase === "thinking" || ev.phase === "speaking") {
+        if (srcRef.current !== "expert") engineRef.current?.setPlaybackBuffer(EXPERT_BUFFER_MS);
         srcRef.current = "expert";
         setSpeaker("expert");
         setArmed(false);
       } else if (ev.phase === "moshi" || ev.phase === "cancelled") {
+        if (srcRef.current !== "moshi") engineRef.current?.setPlaybackBuffer(MOSHI_BUFFER_MS);
         srcRef.current = "moshi";
         setSpeaker("moshi");
       }

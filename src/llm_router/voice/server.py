@@ -132,9 +132,15 @@ class Bridge:
                     with contextlib.suppress(Exception):
                         self.on_browser_meta(json.loads(bytes(data[1:]).decode("utf-8")))
                     continue
+                is_audio = bool(data) and data[0] == MT_AUDIO
+                if is_audio and self.on_user_audio:
+                    self.on_user_audio(data[1:])  # tap (turn detection + barge-in) — always
+                # During a handoff, don't feed the user's mic to Moshi: otherwise it
+                # accumulates the question (and TTS echo) while paused and blurts a
+                # reply the instant it resumes.
+                if is_audio and self.suppress_downstream and self.suppress_downstream():
+                    continue
                 await up.send_bytes(data)
-                if self.on_user_audio and data and data[0] == MT_AUDIO:
-                    self.on_user_audio(data[1:])
             elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.ERROR):
                 break
 

@@ -136,6 +136,12 @@ export class AudioEngine {
     this.worklet?.port.postMessage({ type: "reset" });
   }
 
+  /** Set the playback pre-roll buffer in ms (larger absorbs network jitter at
+   * the cost of latency). Big for one-way expert TTS, small for live Moshi. */
+  setPlaybackBuffer(ms: number): void {
+    this.worklet?.port.postMessage({ type: "setBuffer", ms });
+  }
+
   setMuted(m: boolean): void {
     this.muted = m;
   }

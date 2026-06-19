@@ -86,3 +86,14 @@ voice   │  detects "needs deeper reasoning" → handoff  │
   - **Steps:** (1) server emits MT=4 phase/source events at each transition (turn → trigger → routing → speaking → resume); (2) fork client → `clients/voice-web/`, reuse decoder/protocol, build the UI; (3) wire MT=4 → UI state; (4) `pnpm build` → point `llm-voice-proxy --web-dir` at the new dist; (5) deploy (same `voice.bcc.sh`, just a different dist).
   - **Also fold in here:** smoother audio buffering (the pump currently inserts brief silences between expert sentences while Orpheus synthesizes the next — pre-synthesize/buffer ahead); a visible "thinking" affordance during the TTFT gap.
   - Effort: medium frontend project (days). Backend orchestration is done; this is UI + a small additive protocol change.
+
+  ### Slice 6 progress
+  - [x] **Step 1 — server MT=4 protocol (additive, backward-compatible).** `server.py`:
+    - **Server → browser** voice status events on MT=4 (JSON): `{"kind":"voice","phase":"trigger|thinking|speaking|moshi|cancelled","source":"expert|moshi","model":<resolved>,"query":<str>}`. Lifecycle: `trigger` (query captured) → `thinking` (filler playing, LLM TTFT, `source:expert`) → `speaking` (first audio out, carries the auto-router's **resolved** model, e.g. `Qwen/Qwen3.6-35B-A3B-FP8`) → `moshi` (resumed) / `cancelled` (barge-in). The stock Moshi client decodes MT=4 as metadata and `safeParse`-ignores it (no crash).
+    - **Browser → server** control on MT=4: `{"cmd":"ask","query"?:<str>}` (direct query, or no query = *arm* the next spoken turn) and `{"cmd":"stop"}` (explicit interrupt). The bridge intercepts these and does **not** forward them to Moshi.
+    - **`GET /api/voice/config`** → `{triggers, llm, filler, handoff_enabled}` for the FE to render the wake-phrase hint + manual button without a ws round-trip.
+    - **Resolved-model transparency:** `handoff_tts.stream_deltas(..., on_model=cb)` fires once with the response `model` field; the server forwards it in the `speaking` event.
+    - **Text attribution by phase (not a separate channel):** expert text still goes over MT=2 (Moshi muted during handoff), and the FE attributes MT=2 to the current `source` from the phase events — avoids a risky double text channel while still letting the FE label who's speaking.
+    - **Verified headless** (`ask` command → expert path): event order `trigger→thinking→speaking(model=Qwen3.6-35B)→moshi`, 625 expert audio frames, full Rayleigh-scattering answer. Deployed live to hypatia `llm-voice-proxy`.
+  - [ ] **Step 2** — scaffold `clients/voice-web/` (pnpm/Vite/React), reuse Opus decoder/encoder + worklet + protocol; build the handoff UI.
+  - [ ] **Step 3** — wire MT=4 → UI state. [ ] **Step 4** — `pnpm build`. [ ] **Step 5** — deploy (point `--web-dir` at the new dist).

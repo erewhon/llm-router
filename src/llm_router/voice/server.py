@@ -11,6 +11,15 @@ Barge-in: if the user talks during the answer, it's cancelled and Moshi resumes.
 Layers: (1) bridge [`Bridge`], (2) turn tap + STT trigger [`TurnTap`],
 (3) handoff action w/ filler + text + barge-in [`VoiceSession`]. See DESIGN.md.
 
+Slice 6 additive protocol: the server emits **MT=4 JSON** voice.* status events
+(`{"kind":"voice","phase":"trigger|thinking|speaking|moshi|cancelled",
+"source":"expert|moshi","model":...,"query":...}`) so a bespoke FE can show
+who's speaking, the routed model, and handoff phase. The stock Moshi client
+decodes MT=4 as metadata and ignores these. The browser may send MT=4 commands
+back (`{"cmd":"ask","query"?:...}` / `{"cmd":"stop"}`) — a manual ask-the-expert
+and an explicit interrupt — which the bridge intercepts (never forwarded to
+Moshi). `GET /api/voice/config` returns the trigger phrases + expert model.
+
     ROUTER_API_KEY=... python -m llm_router.voice.server --port 8999 \
         --moshi wss://127.0.0.1:8998/api/chat --stt-url http://192.168.42.240:5399/v3 \
         --web-dir /path/to/dist
@@ -22,6 +31,7 @@ import argparse
 import asyncio
 import contextlib
 import io
+import json
 import logging
 import pathlib
 import time
@@ -42,6 +52,7 @@ log = logging.getLogger("voice.server")
 MT_AUDIO = 1
 MT_TEXT = 2
 MT_CONTROL = 3
+MT_META = 4  # JSON metadata; the bespoke FE renders our voice.* events, stock client ignores
 CTL_PAUSE = 2
 CTL_RESTART = 3
 SAMPLE_RATE = 24000
@@ -89,11 +100,13 @@ class Bridge:
         moshi_url: str,
         on_user_audio: Callable[[bytes], None] | None = None,
         suppress_downstream: Callable[[], bool] | None = None,
+        on_browser_meta: Callable[[dict], None] | None = None,
     ) -> None:
         self.browser = browser
         self.moshi_url = moshi_url
         self.on_user_audio = on_user_audio
         self.suppress_downstream = suppress_downstream
+        self.on_browser_meta = on_browser_meta
         self.up = None
 
     async def run(self) -> None:
@@ -113,6 +126,12 @@ class Bridge:
         async for msg in self.browser:
             if msg.type == WSMsgType.BINARY:
                 data = msg.data
+                # MT=4 from the browser = a voice control command (ask/stop) for
+                # us, not for Moshi — intercept and don't forward upstream.
+                if data and data[0] == MT_META and self.on_browser_meta:
+                    with contextlib.suppress(Exception):
+                        self.on_browser_meta(json.loads(bytes(data[1:]).decode("utf-8")))
+                    continue
                 await up.send_bytes(data)
                 if self.on_user_audio and data and data[0] == MT_AUDIO:
                     self.on_user_audio(data[1:])
@@ -139,6 +158,15 @@ class Bridge:
 
     async def send_text_to_browser(self, text: str) -> None:
         await self.browser.send_bytes(bytes([MT_TEXT]) + text.encode("utf-8"))
+
+    async def send_meta(self, obj: dict) -> None:
+        """Send an MT=4 JSON metadata frame (voice.* status/source events).
+
+        Additive: a bespoke FE renders these; the stock Moshi client decodes
+        MT=4 as metadata and ignores shapes it doesn't recognize.
+        """
+        with contextlib.suppress(Exception):
+            await self.browser.send_bytes(bytes([MT_META]) + json.dumps(obj).encode("utf-8"))
 
     async def control_moshi(self, ctl: int) -> None:
         if self.up is not None:
@@ -202,6 +230,11 @@ class TurnTap:
         else:
             self._bargein_voiced = 0
 
+    def arm(self) -> None:
+        """Manual 'ask the expert' button: the next spoken turn is the query."""
+        self._armed = True
+        log.info("armed via manual control; awaiting the question")
+
     def _reset(self) -> None:
         self._pcm = np.zeros(0, np.float32)
         self._speech_seen = False
@@ -231,7 +264,9 @@ class TurnTap:
                     low = text.lower()
                     matched = next((t for t in self.triggers if t in low), None)
                     if matched:
-                        after = text[low.index(matched) + len(matched) :].lstrip(" ,.:;-—?!").strip()
+                        after = (
+                            text[low.index(matched) + len(matched) :].lstrip(" ,.:;-—?!").strip()
+                        )
                         if after:
                             log.info("TRIGGER -> expert query: %r", after)
                             await self.on_trigger(after)
@@ -242,7 +277,7 @@ class TurnTap:
                         self._armed = False
                         log.info("TRIGGER (armed) -> expert query: %r", text)
                         await self.on_trigger(text)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     log.exception("tap error")
                 finally:
                     self._busy = False
@@ -301,8 +336,14 @@ class VoiceSession:
     """Handoff action: mute Moshi, filler + LLM→Orpheus (audio+text) via a
     continuous AudioPump, resume. Barge-in via `state.cancel`."""
 
-    def __init__(self, bridge: Bridge, pcfg: PipelineConfig, suppress: dict,
-                 state: HandoffState, app: web.Application) -> None:
+    def __init__(
+        self,
+        bridge: Bridge,
+        pcfg: PipelineConfig,
+        suppress: dict,
+        state: HandoffState,
+        app: web.Application,
+    ) -> None:
         self.bridge = bridge
         self.pcfg = pcfg
         self.suppress = suppress
@@ -313,10 +354,14 @@ class VoiceSession:
         self.state.cancel.clear()
         self.state.active = True
         self.suppress["on"] = True
+        await self.bridge.send_meta({"kind": "voice", "phase": "trigger", "query": query})
         await self.bridge.control_moshi(CTL_PAUSE)
         pump = AudioPump(self.bridge, self.state)
         pump_task = asyncio.create_task(pump.run())  # continuous stream (silence on gap)
         try:
+            await self.bridge.send_meta(
+                {"kind": "voice", "phase": "thinking", "source": "expert", "query": query}
+            )
             filler_pcm = self.app.get("filler_pcm")
             if filler_pcm is not None:
                 await self.bridge.send_text_to_browser(self.app["filler_text"] + " ")
@@ -334,18 +379,38 @@ class VoiceSession:
             self.state.active = False
             if self.state.cancel.is_set():
                 log.info("handoff cancelled (barge-in)")
+                await self.bridge.send_meta(
+                    {"kind": "voice", "phase": "cancelled", "source": "moshi"}
+                )
+            else:
+                await self.bridge.send_meta({"kind": "voice", "phase": "moshi", "source": "moshi"})
 
     async def _stream_expert(self, query: str, pump: AudioPump) -> None:
         async with httpx.AsyncClient(timeout=self.pcfg.request_timeout) as client:
+            picked = {"model": self.pcfg.llm_model, "spoke": False}
+
+            def on_model(name: str) -> None:  # auto-router's resolved pick (transparency)
+                picked["model"] = name
+                log.info("expert routed to model=%s", name)
 
             async def speak(text: str) -> None:
+                if not picked["spoke"]:  # first audio -> we're now speaking the answer
+                    picked["spoke"] = True
+                    await self.bridge.send_meta(
+                        {
+                            "kind": "voice",
+                            "phase": "speaking",
+                            "source": "expert",
+                            "model": picked["model"],
+                        }
+                    )
                 await self.bridge.send_text_to_browser(text + " ")
                 wav = await synth_bytes(self.pcfg, client, text)
                 pump.push(_wav_bytes_to_pcm24k(wav))  # non-blocking; pump paces it
 
             buf = ""
             first_done = False
-            async for delta in stream_deltas(self.pcfg, client, query):
+            async for delta in stream_deltas(self.pcfg, client, query, on_model=on_model):
                 if self.state.cancel.is_set():
                     return
                 buf += delta
@@ -386,6 +451,24 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
         session = VoiceSession(bridge, pcfg, suppress, state, app)
         tap = TurnTap(app["stt_url"], app["stt_model"], app["triggers"], session.on_trigger, state)
         bridge.on_user_audio = tap.feed
+        bg_tasks: set[asyncio.Task] = set()
+
+        def _on_browser_meta(obj: dict) -> None:
+            cmd = obj.get("cmd")
+            if cmd == "stop":  # explicit interrupt of the current expert answer
+                if state.active:
+                    state.cancel.set()
+                    log.info("expert answer cancelled via manual stop")
+            elif cmd == "ask":
+                query = (obj.get("query") or "").strip()
+                if query and not state.active:  # direct query (e.g. typed)
+                    t = asyncio.create_task(session.on_trigger(query))
+                    bg_tasks.add(t)
+                    t.add_done_callback(bg_tasks.discard)
+                elif not state.active:  # no query -> arm: next spoken turn is the query
+                    tap.arm()
+
+        bridge.on_browser_meta = _on_browser_meta
         coros.append(tap.loop())
     elif app.get("stt_url"):
         log.warning("stt-url set but no ROUTER_API_KEY — handoff disabled (passthrough only)")
@@ -406,6 +489,20 @@ async def _health(_: web.Request) -> web.Response:
     return web.json_response({"status": "ok"})
 
 
+async def _voice_config(request: web.Request) -> web.Response:
+    """Static config for the bespoke FE: trigger phrases, expert model, filler."""
+    app = request.app
+    pcfg: PipelineConfig = app["pcfg"]
+    return web.json_response(
+        {
+            "triggers": app["triggers"],
+            "llm": pcfg.llm_model,
+            "filler": app["filler_text"],
+            "handoff_enabled": bool(app.get("stt_url") and pcfg.router_key),
+        }
+    )
+
+
 async def _prefetch_filler(app: web.Application) -> None:
     """Synth the filler clip once Orpheus answers (so the first handoff isn't slow)."""
     pcfg: PipelineConfig = app["pcfg"]
@@ -419,7 +516,7 @@ async def _prefetch_filler(app: web.Application) -> None:
             app["filler_pcm"] = _wav_bytes_to_pcm24k(wav)
             log.info("filler clip ready (%.1fs): %r", len(app["filler_pcm"]) / SAMPLE_RATE, text)
             return
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             log.debug("filler synth retry: %s", e)
             await asyncio.sleep(5)
     log.warning("filler synth gave up; handoffs will have no filler")
@@ -443,6 +540,7 @@ def make_app(
     app["filler_text"] = filler_text
     app["filler_pcm"] = None
     app.router.add_get("/api/chat", _ws_handler)
+    app.router.add_get("/api/voice/config", _voice_config)
     app.router.add_get("/health", _health)
     if web_dir:  # serve Moshi's web client; same-origin -> it connects to our /api/chat
         wd = pathlib.Path(web_dir)
@@ -452,6 +550,7 @@ def make_app(
 
         app.router.add_get("/", _index)
         app.router.add_static("/assets", wd / "assets")
+
     async def _on_startup(a: web.Application) -> None:  # fire-and-forget filler prefetch
         a["_filler_task"] = asyncio.create_task(_prefetch_filler(a))
 
@@ -473,7 +572,9 @@ def main() -> int:
     ap.add_argument("--filler", default="Let me look that up.", help="filler phrase during TTFT")
     ap.add_argument("--log-level", default="info")
     args = ap.parse_args()
-    logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s")
+    logging.basicConfig(
+        level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s"
+    )
 
     p_over: dict = {"llm_model": args.llm}
     if args.router_url:
@@ -484,8 +585,12 @@ def main() -> int:
 
     web.run_app(
         make_app(
-            args.moshi, pcfg, stt_url=args.stt_url, stt_model=args.stt_model,
-            web_dir=args.web_dir, filler_text=args.filler,
+            args.moshi,
+            pcfg,
+            stt_url=args.stt_url,
+            stt_model=args.stt_model,
+            web_dir=args.web_dir,
+            filler_text=args.filler,
         ),
         host=args.host,
         port=args.port,

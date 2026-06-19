@@ -25,7 +25,7 @@ import json
 import os
 import time
 import wave
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 
 import httpx
 from pydantic import BaseModel, Field
@@ -69,9 +69,17 @@ class TTSResult(BaseModel):
 
 
 async def stream_deltas(
-    cfg: PipelineConfig, client: httpx.AsyncClient, prompt: str
+    cfg: PipelineConfig,
+    client: httpx.AsyncClient,
+    prompt: str,
+    on_model: Callable[[str], None] | None = None,
 ) -> AsyncIterator[str]:
-    """Yield content deltas from a streaming router chat completion."""
+    """Yield content deltas from a streaming router chat completion.
+
+    If `on_model` is given, it's called once with the response's `model` field
+    (for `auto-full` this is the auto-router's resolved pick — useful for
+    routing transparency in the voice UI).
+    """
     payload = {
         "model": cfg.llm_model,
         "messages": [
@@ -81,6 +89,7 @@ async def stream_deltas(
         "stream": True,
     }
     headers = {"Authorization": f"Bearer {cfg.router_key}"}
+    model_reported = False
     async with client.stream(
         "POST", f"{cfg.router_url}/v1/chat/completions", json=payload, headers=headers
     ) as resp:
@@ -95,6 +104,10 @@ async def stream_deltas(
                 obj = json.loads(data)
             except json.JSONDecodeError:
                 continue
+            if on_model and not model_reported and obj.get("model"):
+                model_reported = True
+                with contextlib.suppress(Exception):
+                    on_model(obj["model"])
             delta = (obj.get("choices") or [{}])[0].get("delta", {}).get("content")
             if delta:
                 yield delta

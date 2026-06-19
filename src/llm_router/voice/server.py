@@ -257,12 +257,49 @@ class TurnTap:
         return resp.json().get("text", "").strip()
 
 
-class VoiceSession:
-    """Handoff action: mute Moshi, filler, stream LLM→Orpheus (audio+text), resume.
-
-    Honors barge-in via `state.cancel` (set by the tap when the user talks over
-    the answer).
+class AudioPump:
+    """Continuous realtime audio sink to the browser. Plays queued PCM and emits
+    SILENCE on underrun, so the outbound audio stream never stops — a multi-second
+    gap (e.g. filler → slow expert TTFT) makes Moshi's web client think the turn
+    ended and close the socket ("Start Over"). One Opus stream per handoff.
     """
+
+    def __init__(self, bridge: Bridge, state: HandoffState) -> None:
+        self.bridge = bridge
+        self.state = state
+        self._q: asyncio.Queue[np.ndarray] = asyncio.Queue()
+        self._writer = sphn.OpusStreamWriter(SAMPLE_RATE)
+        self._done = False
+
+    def push(self, pcm: np.ndarray) -> None:
+        for i in range(0, len(pcm), FRAME_SIZE):
+            frame = pcm[i : i + FRAME_SIZE]
+            if len(frame) < FRAME_SIZE:
+                frame = np.pad(frame, (0, FRAME_SIZE - len(frame)))
+            self._q.put_nowait(frame)
+
+    def finish(self) -> None:
+        self._done = True
+
+    async def run(self) -> None:
+        silence = np.zeros(FRAME_SIZE, np.float32)
+        while not (self._done and self._q.empty()):
+            if self.state.cancel.is_set():
+                break
+            try:
+                frame = self._q.get_nowait()
+            except asyncio.QueueEmpty:
+                frame = silence
+            opus = self._writer.append_pcm(frame)
+            if opus:
+                with contextlib.suppress(Exception):
+                    await self.bridge.send_audio_to_browser(opus)
+            await asyncio.sleep(FRAME_SECONDS)
+
+
+class VoiceSession:
+    """Handoff action: mute Moshi, filler + LLM→Orpheus (audio+text) via a
+    continuous AudioPump, resume. Barge-in via `state.cancel`."""
 
     def __init__(self, bridge: Bridge, pcfg: PipelineConfig, suppress: dict,
                  state: HandoffState, app: web.Application) -> None:
@@ -277,30 +314,34 @@ class VoiceSession:
         self.state.active = True
         self.suppress["on"] = True
         await self.bridge.control_moshi(CTL_PAUSE)
-        writer = sphn.OpusStreamWriter(SAMPLE_RATE)
+        pump = AudioPump(self.bridge, self.state)
+        pump_task = asyncio.create_task(pump.run())  # continuous stream (silence on gap)
         try:
             filler_pcm = self.app.get("filler_pcm")
             if filler_pcm is not None:
                 await self.bridge.send_text_to_browser(self.app["filler_text"] + " ")
-                await self._send_pcm(writer, filler_pcm)
-            if not self.state.cancel.is_set():
-                await self._stream_expert(query, writer)
+                pump.push(filler_pcm)
+            # LLM runs concurrently with the filler playback (shrinks the gap).
+            await self._stream_expert(query, pump)
         except Exception:
             log.exception("expert path failed")
         finally:
+            pump.finish()
+            with contextlib.suppress(Exception):
+                await pump_task
             await self.bridge.control_moshi(CTL_RESTART)
             self.suppress["on"] = False
             self.state.active = False
             if self.state.cancel.is_set():
                 log.info("handoff cancelled (barge-in)")
 
-    async def _stream_expert(self, query: str, writer: sphn.OpusStreamWriter) -> None:
+    async def _stream_expert(self, query: str, pump: AudioPump) -> None:
         async with httpx.AsyncClient(timeout=self.pcfg.request_timeout) as client:
 
             async def speak(text: str) -> None:
                 await self.bridge.send_text_to_browser(text + " ")
                 wav = await synth_bytes(self.pcfg, client, text)
-                await self._send_pcm(writer, _wav_bytes_to_pcm24k(wav))
+                pump.push(_wav_bytes_to_pcm24k(wav))  # non-blocking; pump paces it
 
             buf = ""
             first_done = False
@@ -323,18 +364,6 @@ class VoiceSession:
                     await speak(s)
             if buf.strip() and not self.state.cancel.is_set():
                 await speak(buf.strip())
-
-    async def _send_pcm(self, writer: sphn.OpusStreamWriter, pcm: np.ndarray) -> None:
-        for i in range(0, len(pcm), FRAME_SIZE):
-            if self.state.cancel.is_set():
-                return
-            frame = pcm[i : i + FRAME_SIZE]
-            if len(frame) < FRAME_SIZE:
-                frame = np.pad(frame, (0, FRAME_SIZE - len(frame)))
-            opus = writer.append_pcm(frame)
-            if opus:
-                await self.bridge.send_audio_to_browser(opus)
-            await asyncio.sleep(FRAME_SECONDS)  # realtime pace
 
 
 async def _ws_handler(request: web.Request) -> web.WebSocketResponse:

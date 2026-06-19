@@ -398,6 +398,13 @@ class VoiceSession:
                 log.info("expert routed to model=%s", name)
 
             async def speak(text: str) -> None:
+                # Synthesize FIRST, then emit the text + push the audio together, so
+                # a sentence's caption appears in sync with its speech. (If we sent
+                # the text before synthesizing, it would race ~a full sentence ahead
+                # of the audio, since synth blocks the delta loop.)
+                wav = await synth_bytes(self.pcfg, client, text)
+                if self.state.cancel.is_set():
+                    return
                 if not picked["spoke"]:  # first audio -> we're now speaking the answer
                     picked["spoke"] = True
                     await self.bridge.send_meta(
@@ -409,7 +416,6 @@ class VoiceSession:
                         }
                     )
                 await self.bridge.send_text_to_browser(text + " ")
-                wav = await synth_bytes(self.pcfg, client, text)
                 pump.push(_wav_bytes_to_pcm24k(wav))  # non-blocking; pump paces it
 
             buf = ""

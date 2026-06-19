@@ -184,6 +184,7 @@ class TurnTap:
         triggers: list[str],
         on_trigger: Callable[[str], object],
         state: HandoffState,
+        on_turn: Callable[[str], object] | None = None,
         energy_thresh: float = 0.01,
         bargein_thresh: float = 0.02,
         bargein_s: float = 0.4,
@@ -196,6 +197,7 @@ class TurnTap:
         self.triggers = triggers
         self.on_trigger = on_trigger
         self.state = state
+        self.on_turn = on_turn
         self.energy_thresh = energy_thresh
         self.bargein_thresh = bargein_thresh
         self.bargein_n = int(bargein_s * SAMPLE_RATE)
@@ -261,6 +263,8 @@ class TurnTap:
                     if not text:
                         continue
                     log.info("turn: %r", text)
+                    if self.on_turn is not None:  # surface the user's turn (FE transcript)
+                        await self.on_turn(text)
                     low = text.lower()
                     matched = next((t for t in self.triggers if t in low), None)
                     if matched:
@@ -449,7 +453,18 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     if app.get("stt_url") and pcfg.router_key:
         state = HandoffState()
         session = VoiceSession(bridge, pcfg, suppress, state, app)
-        tap = TurnTap(app["stt_url"], app["stt_model"], app["triggers"], session.on_trigger, state)
+
+        async def _on_turn(text: str) -> None:  # show the user's spoken turn in the FE
+            await bridge.send_meta({"kind": "voice", "source": "user", "text": text})
+
+        tap = TurnTap(
+            app["stt_url"],
+            app["stt_model"],
+            app["triggers"],
+            session.on_trigger,
+            state,
+            on_turn=_on_turn,
+        )
         bridge.on_user_audio = tap.feed
         bg_tasks: set[asyncio.Task] = set()
 

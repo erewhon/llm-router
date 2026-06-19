@@ -1,0 +1,12 @@
+node_modules
+dist
+*.local
+.DS_Store
+# the repo-root .gitignore has a blanket `*.json`; keep our essential JSON configs
+!package.json
+!tsconfig.json
+# copied at build time from node_modules by scripts/copy-workers.mjs
+public/assets/encoderWorker.min.js
+public/assets/decoderWorker.min.js
+public/assets/decoderWorker.min.wasm
+public/assets/waveWorker.min.js

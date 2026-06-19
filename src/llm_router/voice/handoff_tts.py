@@ -38,8 +38,10 @@ class PipelineConfig(BaseModel):
     router_key: str = Field(default_factory=lambda: os.environ.get("ROUTER_API_KEY", ""))
     llm_model: str = "auto-full"
     system_prompt: str = (
-        "You are a concise voice assistant. Answer in plain spoken prose, "
-        "no markdown, no lists, suitable for text-to-speech."
+        "You are a voice assistant; your answer is read aloud. Reply in at most "
+        "two short sentences of plain spoken prose — brief and conversational, "
+        "no markdown, no lists, no preamble. Get straight to the point. Only give "
+        "a longer answer if the user explicitly asks for more detail."
     )
     # TTS: hypatia CUDA Orpheus (Slice 3) — Q4_K_M on llama.cpp CUDA, ~1.18x RTF
     # (near realtime) vs euclid Arc's ~1.9x. euclid (192.168.42.240:5397) remains

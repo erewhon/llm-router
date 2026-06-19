@@ -169,7 +169,10 @@ async def _amain(args: argparse.Namespace) -> int:
     pcm_in = load_wav_mono24k(args.infile)
     print(f"sending {len(pcm_in) / SAMPLE_RATE:.1f}s of audio to {args.url}")
     reply, text = await client.converse(
-        pcm_in, max_seconds=args.max_seconds, on_text=lambda t: print(t, end="", flush=True)
+        pcm_in,
+        max_seconds=args.max_seconds,
+        tail_silence_s=args.tail_silence,
+        on_text=lambda t: print(t, end="", flush=True),
     )
     dur = save_wav_mono24k(args.out, reply)
     print(f"\n--- transcript ---\n{text}\n--- reply: {dur:.1f}s audio -> {args.out} ---")
@@ -182,6 +185,7 @@ def main() -> int:
     ap.add_argument("--out", default="/tmp/moshi_reply.wav", help="output wav for Moshi's reply")
     ap.add_argument("--url", default="ws://127.0.0.1:8998/api/chat", help="moshi-backend ws url")
     ap.add_argument("--max-seconds", type=float, default=30.0, help="max conversation window")
+    ap.add_argument("--tail-silence", type=float, default=2.0, help="stop after this much trailing silence")
     args = ap.parse_args()
     return asyncio.run(_amain(args))
 

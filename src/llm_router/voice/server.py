@@ -2,17 +2,16 @@
 
 Speaks Moshi's binary websocket protocol to the browser and relays to real
 Moshi (localhost:8998), so Moshi's own web client works unmodified — just point
-it at this server's `/api/chat`. A tap decodes the inbound user audio and runs
-rolling-window Whisper on it to detect a handoff trigger mid-stream; when it
-fires, the handoff layer pauses Moshi, plays the LLM→Orpheus answer to the
-browser as MT=1 frames, then resumes.
+it at this server's `/api/chat`. A tap decodes the inbound user audio, detects
+end-of-turn by energy (VAD), transcribes the turn (Whisper), and on a handoff
+trigger phrase: mutes Moshi, streams the LLM→Orpheus answer to the browser as
+realtime Opus frames, then resumes.
 
-Layers: (1) transparent bridge [`Bridge`], (2) STT trigger tap [`TriggerTap`],
-(3) handoff action — pause/Orpheus-stream/resume [`VoiceSession.on_trigger`].
-See DESIGN.md (Slice 5). Run on hypatia (localhost to Moshi + Orpheus):
+Layers: (1) transparent bridge [`Bridge`], (2) turn tap + STT trigger [`TurnTap`],
+(3) handoff action [`VoiceSession`]. See DESIGN.md (Slice 5). Run on hypatia:
 
-    python -m llm_router.voice.server --port 8999 --moshi wss://127.0.0.1:8998/api/chat \
-        --stt-url http://192.168.42.240:5399/v3
+    ROUTER_API_KEY=... python -m llm_router.voice.server --port 8999 \
+        --moshi wss://127.0.0.1:8998/api/chat --stt-url http://192.168.42.240:5399/v3
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import time
 import wave
 from collections.abc import Callable
 
@@ -30,7 +30,9 @@ import numpy as np
 import sphn
 from aiohttp import ClientSession, TCPConnector, WSMsgType, web
 
-from llm_router.voice.handoff import DEFAULT_TRIGGERS, detect_handoff
+from llm_router.voice.handoff import DEFAULT_TRIGGERS
+from llm_router.voice.handoff_tts import PipelineConfig, stream_deltas, synth_bytes
+from llm_router.voice.streaming_tts import early_first_chunk, extract_sentences
 
 log = logging.getLogger("voice.server")
 
@@ -40,15 +42,35 @@ MT_CONTROL = 3
 CTL_PAUSE = 2
 CTL_RESTART = 3
 SAMPLE_RATE = 24000
+FRAME_SIZE = 1920
+FRAME_SECONDS = FRAME_SIZE / SAMPLE_RATE
+
+
+def _pcm_to_wav_bytes(pcm: np.ndarray) -> bytes:
+    buf = io.BytesIO()
+    with contextlib.closing(wave.open(buf, "wb")) as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(SAMPLE_RATE)
+        w.writeframes((np.clip(pcm, -1, 1) * 32767).astype(np.int16).tobytes())
+    return buf.getvalue()
+
+
+def _wav_bytes_to_pcm24k(wav_bytes: bytes) -> np.ndarray:
+    with contextlib.closing(wave.open(io.BytesIO(wav_bytes), "rb")) as w:
+        n, ch, sr = w.getnframes(), w.getnchannels(), w.getframerate()
+        raw = w.readframes(n)
+    pcm = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+    if ch > 1:
+        pcm = pcm.reshape(-1, ch).mean(axis=1)
+    if sr != SAMPLE_RATE:
+        idx = np.linspace(0, len(pcm) - 1, int(len(pcm) * SAMPLE_RATE / sr))
+        pcm = np.interp(idx, np.arange(len(pcm)), pcm).astype(np.float32)
+    return pcm
 
 
 class Bridge:
-    """A single browser <-> Moshi session: relays MT frames both ways.
-
-    `on_user_audio(payload)` receives the Opus payload of each inbound MT=1
-    frame from the browser (the tap). `suppress_downstream()` lets the handoff
-    layer mute Moshi→browser audio while it plays the expert answer.
-    """
+    """One browser <-> Moshi session; relays MT frames, with a tap + mute hook."""
 
     def __init__(
         self,
@@ -61,7 +83,7 @@ class Bridge:
         self.moshi_url = moshi_url
         self.on_user_audio = on_user_audio
         self.suppress_downstream = suppress_downstream
-        self.up = None  # upstream ws (set in run)
+        self.up = None
 
     async def run(self) -> None:
         connector = TCPConnector(ssl=False) if self.moshi_url.startswith("wss") else None
@@ -89,11 +111,12 @@ class Bridge:
     async def _moshi_to_browser(self, up) -> None:
         async for msg in up:
             if msg.type == WSMsgType.BINARY:
-                # During a handoff we mute Moshi's audio but keep its text.
-                if self.suppress_downstream and self.suppress_downstream() and msg.data[:1] == bytes(
-                    [MT_AUDIO]
+                if (
+                    self.suppress_downstream
+                    and self.suppress_downstream()
+                    and msg.data[:1] == bytes([MT_AUDIO])
                 ):
-                    continue
+                    continue  # mute Moshi's audio during a handoff (keep its text)
                 await self.browser.send_bytes(msg.data)
             elif msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSING, WSMsgType.ERROR):
                 break
@@ -107,72 +130,89 @@ class Bridge:
                 await self.up.send_bytes(bytes([MT_CONTROL, ctl]))
 
 
-def _pcm_to_wav_bytes(pcm: np.ndarray) -> bytes:
-    buf = io.BytesIO()
-    with contextlib.closing(wave.open(buf, "wb")) as w:
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(SAMPLE_RATE)
-        w.writeframes((np.clip(pcm, -1, 1) * 32767).astype(np.int16).tobytes())
-    return buf.getvalue()
-
-
-class TriggerTap:
-    """Decodes inbound user Opus, runs rolling-window Whisper, fires on trigger."""
+class TurnTap:
+    """Energy-VAD end-of-turn detector → Whisper → handoff trigger on the full turn."""
 
     def __init__(
         self,
         stt_url: str,
         stt_model: str,
         triggers: list[str],
-        on_trigger: Callable[[str], "asyncio.Future"],
-        window_s: float = 6.0,
-        check_interval_s: float = 2.5,
-        min_new_s: float = 1.5,
+        on_trigger: Callable[[str], object],
+        energy_thresh: float = 0.01,
+        silence_gap_s: float = 0.8,
+        min_turn_s: float = 0.6,
+        max_turn_s: float = 16.0,
     ) -> None:
         self.stt_url = stt_url
         self.stt_model = stt_model
         self.triggers = triggers
         self.on_trigger = on_trigger
-        self.window_n = int(window_s * SAMPLE_RATE)
-        self.check_interval_s = check_interval_s
-        self.min_new_n = int(min_new_s * SAMPLE_RATE)
+        self.energy_thresh = energy_thresh
+        self.silence_gap_s = silence_gap_s
+        self.min_turn_n = int(min_turn_s * SAMPLE_RATE)
+        self.max_turn_n = int(max_turn_s * SAMPLE_RATE)
         self._reader = sphn.OpusStreamReader(SAMPLE_RATE)
         self._pcm = np.zeros(0, np.float32)
-        self._seen = 0  # samples at last transcription
+        self._speech_seen = False
+        self._last_voice: float | None = None  # monotonic time of last voiced frame
+        self._armed = False  # heard the trigger phrase, awaiting the question turn
         self._busy = False
 
     def feed(self, opus_payload: bytes) -> None:
         pcm = self._reader.append_bytes(opus_payload)
-        if pcm is not None and len(pcm):
-            self._pcm = np.concatenate((self._pcm, pcm))[-self.window_n * 2 :]
+        if pcm is None or not len(pcm):
+            return
+        self._pcm = np.concatenate((self._pcm, pcm))[-self.max_turn_n :]
+        rms = float(np.sqrt(np.mean(pcm**2)))
+        if rms > self.energy_thresh:
+            self._speech_seen = True
+            self._last_voice = time.monotonic()
+
+    def _reset(self) -> None:
+        self._pcm = np.zeros(0, np.float32)
+        self._speech_seen = False
+        self._last_voice = None
 
     async def loop(self) -> None:
         async with httpx.AsyncClient(timeout=30.0) as client:
             while True:
-                await asyncio.sleep(self.check_interval_s)
-                if self._busy or len(self._pcm) - self._seen < self.min_new_n:
+                await asyncio.sleep(0.25)
+                if self._busy:
                     continue
-                window = self._pcm[-self.window_n :]
-                self._seen = len(self._pcm)
+                if not (
+                    self._speech_seen
+                    and self._last_voice is not None
+                    and (time.monotonic() - self._last_voice) > self.silence_gap_s
+                    and len(self._pcm) > self.min_turn_n
+                ):
+                    continue
+                turn = self._pcm.copy()
+                self._reset()
+                self._busy = True
                 try:
-                    text = await self._stt(client, window)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("stt error: %s", e)
-                    continue
-                if not text:
-                    continue
-                log.info("heard: %r", text)
-                is_h, query = detect_handoff(text, self.triggers)
-                if is_h:
-                    log.info("TRIGGER -> expert query: %r", query)
-                    self._busy = True
-                    try:
-                        await self.on_trigger(query)
-                    finally:
-                        self._busy = False
-                        self._pcm = np.zeros(0, np.float32)  # avoid re-firing
-                        self._seen = 0
+                    text = await self._stt(client, turn)
+                    if not text:
+                        continue
+                    log.info("turn: %r", text)
+                    low = text.lower()
+                    matched = next((t for t in self.triggers if t in low), None)
+                    if matched:
+                        after = text[low.index(matched) + len(matched) :].lstrip(" ,.:;-—?!").strip()
+                        if after:
+                            log.info("TRIGGER -> expert query: %r", after)
+                            await self.on_trigger(after)
+                        else:  # heard the phrase but the question is in the next turn
+                            log.info("armed: heard trigger, awaiting the question")
+                            self._armed = True
+                    elif self._armed:
+                        self._armed = False
+                        log.info("TRIGGER (armed) -> expert query: %r", text)
+                        await self.on_trigger(text)
+                except Exception:  # noqa: BLE001
+                    log.exception("tap error")
+                finally:
+                    self._busy = False
 
     async def _stt(self, client: httpx.AsyncClient, pcm: np.ndarray) -> str:
         resp = await client.post(
@@ -184,6 +224,62 @@ class TriggerTap:
         return resp.json().get("text", "").strip()
 
 
+class VoiceSession:
+    """The handoff action: mute/pause Moshi, stream LLM→Orpheus to the browser, resume."""
+
+    def __init__(self, bridge: Bridge, pcfg: PipelineConfig, suppress: dict) -> None:
+        self.bridge = bridge
+        self.pcfg = pcfg
+        self.suppress = suppress
+
+    async def on_trigger(self, query: str) -> None:
+        self.suppress["on"] = True
+        await self.bridge.control_moshi(CTL_PAUSE)  # best-effort (no-op in full streaming)
+        try:
+            await self._stream_expert(query)
+        except Exception:
+            log.exception("expert path failed")
+        finally:
+            await self.bridge.control_moshi(CTL_RESTART)
+            self.suppress["on"] = False
+
+    async def _stream_expert(self, query: str) -> None:
+        writer = sphn.OpusStreamWriter(SAMPLE_RATE)
+        async with httpx.AsyncClient(timeout=self.pcfg.request_timeout) as client:
+
+            async def speak(text: str) -> None:
+                wav = await synth_bytes(self.pcfg, client, text)
+                await self._send_pcm(writer, _wav_bytes_to_pcm24k(wav))
+
+            buf = ""
+            first_done = False
+            async for delta in stream_deltas(self.pcfg, client, query):
+                buf += delta
+                to_say: list[str] = []
+                if not first_done:
+                    chunk, buf = early_first_chunk(buf, 12, 36)
+                    if not chunk:
+                        continue
+                    to_say.append(chunk)
+                    first_done = True
+                sents, buf = extract_sentences(buf, 16)
+                to_say += sents
+                for s in to_say:
+                    await speak(s)
+            if buf.strip():
+                await speak(buf.strip())
+
+    async def _send_pcm(self, writer: sphn.OpusStreamWriter, pcm: np.ndarray) -> None:
+        for i in range(0, len(pcm), FRAME_SIZE):
+            frame = pcm[i : i + FRAME_SIZE]
+            if len(frame) < FRAME_SIZE:
+                frame = np.pad(frame, (0, FRAME_SIZE - len(frame)))
+            opus = writer.append_pcm(frame)
+            if opus:
+                await self.bridge.send_audio_to_browser(opus)
+            await asyncio.sleep(FRAME_SECONDS)  # realtime pace so resume lines up with playback
+
+
 async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     ws = web.WebSocketResponse(max_msg_size=0)
     await ws.prepare(request)
@@ -192,26 +288,18 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     log.info("browser %s connected; bridging to %s", peer, app["moshi_url"])
 
     suppress = {"on": False}
-    tap = None
-    if app.get("stt_url"):
-        # Layer 3 (handoff action) lands here; for now the trigger just logs and
-        # briefly mutes Moshi as a placeholder so the wiring is exercised.
-        async def on_trigger(query: str) -> None:
-            log.info("handoff requested for %r (action: layer 3)", query)
-
-        tap = TriggerTap(
-            app["stt_url"], app["stt_model"], app["triggers"], on_trigger
-        )
-
-    bridge = Bridge(
-        ws,
-        app["moshi_url"],
-        on_user_audio=tap.feed if tap else None,
-        suppress_downstream=(lambda: suppress["on"]) if tap else None,
-    )
+    bridge = Bridge(ws, app["moshi_url"], suppress_downstream=lambda: suppress["on"])
     coros = [bridge.run()]
-    if tap:
+
+    pcfg: PipelineConfig = app["pcfg"]
+    if app.get("stt_url") and pcfg.router_key:
+        session = VoiceSession(bridge, pcfg, suppress)
+        tap = TurnTap(app["stt_url"], app["stt_model"], app["triggers"], session.on_trigger)
+        bridge.on_user_audio = tap.feed
         coros.append(tap.loop())
+    elif app.get("stt_url"):
+        log.warning("stt-url set but no ROUTER_API_KEY — handoff disabled (passthrough only)")
+
     tasks = {asyncio.create_task(c) for c in coros}
     try:
         _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -230,12 +318,14 @@ async def _health(_: web.Request) -> web.Response:
 
 def make_app(
     moshi_url: str,
+    pcfg: PipelineConfig,
     stt_url: str | None = None,
     stt_model: str = "whisper-large-v3-turbo",
     triggers: list[str] | None = None,
 ) -> web.Application:
     app = web.Application()
     app["moshi_url"] = moshi_url
+    app["pcfg"] = pcfg
     app["stt_url"] = stt_url
     app["stt_model"] = stt_model
     app["triggers"] = triggers or list(DEFAULT_TRIGGERS)
@@ -249,13 +339,24 @@ def main() -> int:
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8999)
     ap.add_argument("--moshi", default="wss://127.0.0.1:8998/api/chat", help="upstream Moshi ws")
-    ap.add_argument("--stt-url", default=None, help="Whisper /v3 base (enables the trigger tap)")
+    ap.add_argument("--stt-url", default=None, help="Whisper /v3 base (enables the handoff)")
     ap.add_argument("--stt-model", default="whisper-large-v3-turbo")
+    ap.add_argument("--llm", default="auto-full", help="expert-path router model")
+    ap.add_argument("--router-url", default=None, help="router base url (remote when off-host)")
+    ap.add_argument("--tts-url", default=None, help="Orpheus base for the expert path")
     ap.add_argument("--log-level", default="info")
     args = ap.parse_args()
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s")
+
+    p_over: dict = {"llm_model": args.llm}
+    if args.router_url:
+        p_over["router_url"] = args.router_url
+    if args.tts_url:
+        p_over["tts_url"] = args.tts_url
+    pcfg = PipelineConfig(**p_over)
+
     web.run_app(
-        make_app(args.moshi, stt_url=args.stt_url, stt_model=args.stt_model),
+        make_app(args.moshi, pcfg, stt_url=args.stt_url, stt_model=args.stt_model),
         host=args.host,
         port=args.port,
     )

@@ -21,6 +21,7 @@ import asyncio
 import contextlib
 import io
 import logging
+import pathlib
 import time
 import wave
 from collections.abc import Callable
@@ -285,10 +286,13 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
     app = request.app
     peer = request.remote
-    log.info("browser %s connected; bridging to %s", peer, app["moshi_url"])
+    moshi_url = app["moshi_url"]
+    if request.query_string:  # forward the client's generation params to Moshi
+        moshi_url += ("&" if "?" in moshi_url else "?") + request.query_string
+    log.info("browser %s connected; bridging to %s", peer, moshi_url)
 
     suppress = {"on": False}
-    bridge = Bridge(ws, app["moshi_url"], suppress_downstream=lambda: suppress["on"])
+    bridge = Bridge(ws, moshi_url, suppress_downstream=lambda: suppress["on"])
     coros = [bridge.run()]
 
     pcfg: PipelineConfig = app["pcfg"]
@@ -322,6 +326,7 @@ def make_app(
     stt_url: str | None = None,
     stt_model: str = "whisper-large-v3-turbo",
     triggers: list[str] | None = None,
+    web_dir: str | None = None,
 ) -> web.Application:
     app = web.Application()
     app["moshi_url"] = moshi_url
@@ -331,6 +336,14 @@ def make_app(
     app["triggers"] = triggers or list(DEFAULT_TRIGGERS)
     app.router.add_get("/api/chat", _ws_handler)
     app.router.add_get("/health", _health)
+    if web_dir:  # serve Moshi's web client; same-origin -> it connects to our /api/chat
+        wd = pathlib.Path(web_dir)
+
+        async def _index(_: web.Request) -> web.FileResponse:
+            return web.FileResponse(wd / "index.html")
+
+        app.router.add_get("/", _index)
+        app.router.add_static("/assets", wd / "assets")
     return app
 
 
@@ -344,6 +357,7 @@ def main() -> int:
     ap.add_argument("--llm", default="auto-full", help="expert-path router model")
     ap.add_argument("--router-url", default=None, help="router base url (remote when off-host)")
     ap.add_argument("--tts-url", default=None, help="Orpheus base for the expert path")
+    ap.add_argument("--web-dir", default=None, help="serve a web-client dist from / (frontend)")
     ap.add_argument("--log-level", default="info")
     args = ap.parse_args()
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s")
@@ -356,7 +370,9 @@ def main() -> int:
     pcfg = PipelineConfig(**p_over)
 
     web.run_app(
-        make_app(args.moshi, pcfg, stt_url=args.stt_url, stt_model=args.stt_model),
+        make_app(
+            args.moshi, pcfg, stt_url=args.stt_url, stt_model=args.stt_model, web_dir=args.web_dir
+        ),
         host=args.host,
         port=args.port,
     )

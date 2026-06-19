@@ -96,9 +96,10 @@ export function useVoice() {
 
   const handleVoiceEvent = useCallback(
     (ev: VoiceEvent) => {
-      // a discrete user turn (from the server's STT tap)
-      if (ev.source === "user" && ev.text) {
-        pushTurn("user", ev.text);
+      // a discrete user turn (from the server's STT tap); skip noise-only
+      // transcriptions (Whisper emits "." / "..." for silence/noise)
+      if (ev.source === "user") {
+        if (ev.text && /\w/.test(ev.text)) pushTurn("user", ev.text);
         return;
       }
       if (ev.model) setModel(ev.model);
@@ -186,6 +187,9 @@ export function useVoice() {
 
       const ws = new WebSocket(buildWsUrl());
       ws.binaryType = "arraybuffer";
+      // start the mic only once the socket is open, so the first opus page sent
+      // is the Ogg BOS/OpusHead (Moshi rejects a mid-stream start otherwise).
+      ws.onopen = () => void engineRef.current?.startCapture();
       ws.onmessage = (e) => onMessage(e.data as ArrayBuffer);
       ws.onclose = () => {
         setStatus((s) => (s === "error" ? s : "ended"));

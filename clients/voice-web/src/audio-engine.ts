@@ -94,7 +94,15 @@ export class AudioEngine {
       if (!this.muted) this.cb.onMicChunk(data);
     };
     this.recorder = recorder;
-    await recorder.start();
+    // NOTE: do NOT start() here — see startCapture(). Starting before the ws is
+    // open drops the opening Ogg pages (OpusHead BOS + OpusTags), so Moshi sees a
+    // mid-stream start and its Ogg reader rejects it ("Constraint violated").
+  }
+
+  /** Begin emitting opus pages. Call ONLY once the websocket is OPEN, so the
+   * first page sent is the Ogg BOS/OpusHead — otherwise Moshi rejects the stream. */
+  async startCapture(): Promise<void> {
+    await this.recorder?.start();
   }
 
   private startLevelMeter(): void {

@@ -561,7 +561,10 @@ def make_app(
         wd = pathlib.Path(web_dir)
 
         async def _index(_: web.Request) -> web.FileResponse:
-            return web.FileResponse(wd / "index.html")
+            # no-cache so a redeploy is always picked up: index.html references
+            # content-hashed assets, so it must revalidate to see new hashes.
+            # (The /assets bundles are immutable — safe for the browser to cache.)
+            return web.FileResponse(wd / "index.html", headers={"Cache-Control": "no-cache"})
 
         app.router.add_get("/", _index)
         app.router.add_static("/assets", wd / "assets")

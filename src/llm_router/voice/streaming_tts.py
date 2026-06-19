@@ -102,7 +102,7 @@ async def stream_pipeline(
     out_path: str,
     min_chunk_chars: int = 16,
     first_chunk_min_chars: int = 12,
-    first_chunk_max_chars: int = 60,
+    first_chunk_max_chars: int = 36,
 ) -> StreamResult:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
     started = time.perf_counter()
@@ -166,6 +166,7 @@ def main() -> int:
     ap.add_argument("--tts-url", default=None, help="override TTS base URL")
     ap.add_argument("--out", default="/tmp/voice_answer_streamed.wav", help="output wav path")
     ap.add_argument("--min-chunk-chars", type=int, default=16, help="min sentence length to flush")
+    ap.add_argument("--first-chunk-max-chars", type=int, default=36, help="cap on the fast first chunk")
     args = ap.parse_args()
 
     overrides = {}
@@ -180,7 +181,15 @@ def main() -> int:
         print("error: ROUTER_API_KEY not set", flush=True)
         return 2
 
-    res = asyncio.run(stream_pipeline(cfg, args.prompt, args.out, args.min_chunk_chars))
+    res = asyncio.run(
+        stream_pipeline(
+            cfg,
+            args.prompt,
+            args.out,
+            args.min_chunk_chars,
+            first_chunk_max_chars=args.first_chunk_max_chars,
+        )
+    )
     ttfa = f"{res.ttfa_s:.2f}s" if res.ttfa_s is not None else "n/a"
     print(
         f"streamed: ttfa={ttfa}  total={res.total_s:.2f}s  audio={res.audio_s:.2f}s  "

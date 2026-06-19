@@ -41,9 +41,10 @@ class PipelineConfig(BaseModel):
         "You are a concise voice assistant. Answer in plain spoken prose, "
         "no markdown, no lists, suitable for text-to-speech."
     )
-    # TTS: default to the existing euclid Orpheus (functional, ~0.5x realtime on
-    # Arc). Slice 3 repoints this at a CUDA Orpheus for ~realtime.
-    tts_url: str = "http://192.168.42.240:5397"
+    # TTS: hypatia CUDA Orpheus (Slice 3) — Q4_K_M on llama.cpp CUDA, ~1.18x RTF
+    # (near realtime) vs euclid Arc's ~1.9x. euclid (192.168.42.240:5397) remains
+    # a fallback.
+    tts_url: str = "http://192.168.42.52:5397"
     tts_model: str = "orpheus"
     tts_voice: str = "tara"
     request_timeout: float = 600.0

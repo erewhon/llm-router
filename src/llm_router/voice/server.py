@@ -56,6 +56,7 @@ MT_CONTROL = 3
 MT_META = 4  # JSON metadata; the bespoke FE renders our voice.* events, stock client ignores
 CTL_PAUSE = 2
 CTL_RESTART = 3
+ARM_TIMEOUT_S = 12.0  # auto-disarm if a manual "ask the expert" isn't followed by a question
 SAMPLE_RATE = 24000
 FRAME_SIZE = 1920
 FRAME_SECONDS = FRAME_SIZE / SAMPLE_RATE
@@ -78,9 +79,9 @@ _HALLUCINATION_SUBSTR = (
 def _is_noise_transcript(text: str) -> bool:
     """True if a transcribed turn looks like Whisper noise/silence hallucination."""
     t = text.strip().lower()
-    if len(re.sub(r"[^0-9a-zа-яё]+", "", t)) < 2:  # punctuation/symbols only (".", "♪", "?")
+    if len(re.sub(r"[^0-9a-z]+", "", t)) < 2:  # punctuation/symbols only (".", "♪", "?")
         return True
-    if t.strip(" .!?,–—-\"'") in _HALLUCINATION_EXACT:
+    if t.strip(" .!?,-\"'") in _HALLUCINATION_EXACT:
         return True
     return any(s in t for s in _HALLUCINATION_SUBSTR)
 
@@ -267,6 +268,13 @@ class TurnTap:
         """Manual 'ask the expert' button: the next spoken turn is the query."""
         self._armed = True
         log.info("armed via manual control; awaiting the question")
+
+    @property
+    def armed(self) -> bool:
+        return self._armed
+
+    def disarm(self) -> None:
+        self._armed = False
 
     def _reset(self) -> None:
         self._pcm = np.zeros(0, np.float32)
@@ -507,20 +515,42 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
         bridge.on_user_audio = tap.feed
         bg_tasks: set[asyncio.Task] = set()
 
+        def _track(coro) -> None:
+            t = asyncio.create_task(coro)
+            bg_tasks.add(t)
+            t.add_done_callback(bg_tasks.discard)
+
+        def _disarm() -> None:
+            tap.disarm()
+            suppress["on"] = False
+
+        async def _arm_timeout() -> None:
+            await asyncio.sleep(ARM_TIMEOUT_S)
+            if tap.armed and not state.active:  # no question came -> un-mute Moshi
+                _disarm()
+                log.info("auto-disarmed (no question heard); Moshi un-muted")
+
         def _on_browser_meta(obj: dict) -> None:
             cmd = obj.get("cmd")
-            if cmd == "stop":  # explicit interrupt of the current expert answer
-                if state.active:
+            if cmd == "stop":
+                if state.active:  # interrupt the current expert answer
                     state.cancel.set()
                     log.info("expert answer cancelled via manual stop")
+                elif tap.armed:  # cancel a pending arm
+                    _disarm()
+                    log.info("disarmed via manual stop")
             elif cmd == "ask":
                 query = (obj.get("query") or "").strip()
                 if query and not state.active:  # direct query (e.g. typed)
-                    t = asyncio.create_task(session.on_trigger(query))
-                    bg_tasks.add(t)
-                    t.add_done_callback(bg_tasks.discard)
-                elif not state.active:  # no query -> arm: next spoken turn is the query
+                    _track(session.on_trigger(query))
+                elif not state.active:
+                    # Arm: the next spoken turn is the query. Mute Moshi NOW so it
+                    # doesn't hear (and later answer) the spoken question — Moshi
+                    # ignores Control frames, so suppressing its audio is the only
+                    # lever. Auto-disarm if no question follows.
                     tap.arm()
+                    suppress["on"] = True
+                    _track(_arm_timeout())
 
         bridge.on_browser_meta = _on_browser_meta
         coros.append(tap.loop())

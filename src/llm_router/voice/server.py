@@ -34,6 +34,7 @@ import io
 import json
 import logging
 import pathlib
+import re
 import time
 import wave
 from collections.abc import Callable
@@ -58,6 +59,30 @@ CTL_RESTART = 3
 SAMPLE_RATE = 24000
 FRAME_SIZE = 1920
 FRAME_SECONDS = FRAME_SIZE / SAMPLE_RATE
+
+# Whisper hallucinates stock phrases on silence/noise (an empty VAD-triggered turn).
+# Drop these so they don't pollute the transcript or arm a handoff.
+_HALLUCINATION_EXACT = {
+    "you", "thank you", "thank you.", "thanks for watching", "thanks for watching!",
+    "thank you for watching", "thank you for watching.", "thank you very much",
+    "please subscribe", "subscribe", "bye", "bye.", "bye bye", "okay", "ok", "so",
+    "see you next time", "see you in the next video", "i'll see you next time",
+    "you're welcome", "the end",
+}
+_HALLUCINATION_SUBSTR = (
+    "субтитр", "dimatorzok", "amara.org", "subtitles by", "subscribe to",
+    "transcription by", "thanks for watching", "see you in the next",
+)
+
+
+def _is_noise_transcript(text: str) -> bool:
+    """True if a transcribed turn looks like Whisper noise/silence hallucination."""
+    t = text.strip().lower()
+    if len(re.sub(r"[^0-9a-zа-яё]+", "", t)) < 2:  # punctuation/symbols only (".", "♪", "?")
+        return True
+    if t.strip(" .!?,–—-\"'") in _HALLUCINATION_EXACT:
+        return True
+    return any(s in t for s in _HALLUCINATION_SUBSTR)
 
 
 def _pcm_to_wav_bytes(pcm: np.ndarray) -> bytes:
@@ -266,7 +291,9 @@ class TurnTap:
                 self._busy = True
                 try:
                     text = await self._stt(client, turn)
-                    if not text:
+                    if not text or _is_noise_transcript(text):
+                        if text:
+                            log.info("dropped noise transcript: %r", text)
                         continue
                     log.info("turn: %r", text)
                     if self.on_turn is not None:  # surface the user's turn (FE transcript)

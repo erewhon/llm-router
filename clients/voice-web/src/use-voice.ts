@@ -45,7 +45,7 @@ const buildWsUrl = (): string => {
 // Playback jitter-buffer pre-roll: small for live Moshi (low latency), larger
 // during the one-way expert answer to absorb network jitter / per-sentence gaps.
 const MOSHI_BUFFER_MS = 80;
-const EXPERT_BUFFER_MS = 300;
+const EXPERT_BUFFER_MS = 500;
 
 const phaseFromEvent = (p?: VoiceEvent["phase"]): Phase | null => {
   switch (p) {

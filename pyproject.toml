@@ -41,6 +41,7 @@ rag = [
     "tree-sitter-python>=0.23",
     "tree-sitter-bash>=0.23",
     "docling>=2.0",
+    "mcp>=1.0",
 ]
 photo-tag = [
     "Pillow>=11.0",
@@ -55,6 +56,7 @@ llm-router-dashboard = "llm_router.dashboard:cli"
 llm-router-bench = "llm_router.bench:cli"
 llm-router-tui = "llm_router.tui:cli"
 llm-router-rag = "llm_router.rag.cli:cli"
+llm-router-rag-mcp = "llm_router.rag.mcp_server:main"
 photo-tag = "llm_router.photo_tag:main"
 
 [build-system]

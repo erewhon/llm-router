@@ -24,11 +24,34 @@ Moshi-architecture 7B with much better turn-taking/interruption + a **text perso
   `ws.receive()` in `asyncio.wait_for(...,0.01)`; the cancelled receives corrupt the aiohttp
   websocket and close the session right after the handshake → replaced the receive with
   `raise asyncio.TimeoutError()` (treat as alive; still aborts on `close`/`ws.closed`).
-- **Persona + voice are per-connect query params** (`text_prompt`, `voice_prompt=NATF2.pt`)
-  — the proxy injects them from `MOSHI_PERSONA` / `MOSHI_VOICE` (in `~/voice/router.env`)
-  when the client doesn't supply them. Voices: NATF0-3/NATM0-3 (natural), VARF0-4/VARM0-4.
-- Verified end-to-end: PersonaPlex converses through voice.bcc.sh ("Hello, welcome to voice
-  AI…"), and the expert handoff (Qwen3.6→Orpheus) still works on top of it.
+- **Persona + voice + audio-temp are proxy-injected** at connect (query params
+  `text_prompt` / `voice_prompt` / `audio_temperature`), the proxy being authoritative —
+  from `MOSHI_PERSONA` / `MOSHI_VOICE` / `MOSHI_AUDIO_TEMP` in `~/voice/router.env`.
+  Preset voices: NATF0-3/NATM0-3 (natural), VARF0-4/VARM0-4 (variety).
+- Verified end-to-end: PersonaPlex converses through voice.bcc.sh, and the expert handoff
+  (Qwen3.6→Orpheus) still works on top of it.
+
+### Unified voice — "Ada" cloned from Orpheus tara (2026-06-19, live)
+Goal: one voice for the conversational layer (PersonaPlex) AND the expert TTS (Orpheus), so
+the handoff doesn't switch speakers. PersonaPlex does **zero-shot voice cloning** (no
+training) — load a reference clip as the voice prompt. Recipe used:
+1. Synthesize a **short (~4-5 s) clean reference** of Orpheus `tara` (24 kHz mono).
+   **Length matters:** the voice prompt is replayed through the LM every connection, so a
+   21 s reference = ~31 s of system-prompt setup before the handshake (unusable). Presets
+   are ~4-5 s (NATF2=51 frames, ~4 s) → match that.
+2. **Bake a `.pt`** (precomputed embeddings) so it loads instantly like the presets:
+   run `moshi.offline` with `save_voice_prompt_embeddings=True` (hardcoded False in
+   `offline.py` main → temporarily flip it) on the wav; it `torch.save`s `<voice>.pt` next
+   to it. Lives in a **stable voices dir** `~/code/personaplex/voices/` (presets copied in +
+   `tara.pt`), served via `--voice-prompt-dir` so an HF re-download can't wipe it.
+3. **Lower the audio temperature** (`MOSHI_AUDIO_TEMP=0.5`): at the default ~0.8 the wav
+   clone drifts (one sample came out male, F0 137 Hz); greedy/low-temp keeps it on target.
+   Required patching PersonaPlex's `server.py` to actually honor `audio_temperature` (those
+   lines were commented out). Raw-wav prompts also need `pyloudnorm` (LUFS norm) — pip-installed.
+4. Persona names it **Ada** (`MOSHI_PERSONA`); voice = `tara.pt`.
+- **Result (measured):** live conversational F0 = **205 Hz** vs Orpheus tara 207 Hz — matched;
+  fast connect (~5 s); stable across runs; expert handoff still PASS. Same speaker throughout.
+- Same path clones any voice from a short clip (incl. the user's own).
 
 ## Verified building blocks (measured 2026-06-18)
 

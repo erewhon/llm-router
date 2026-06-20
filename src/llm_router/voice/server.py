@@ -489,19 +489,24 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     await ws.prepare(request)
     app = request.app
     peer = request.remote
+    # Build the upstream query: pass through the client's gen params, but the proxy
+    # is authoritative for the conversational policy — persona (text_prompt), voice
+    # (voice_prompt), and audio sampling temperature (lower keeps a cloned voice on
+    # target instead of drifting). All are no-ops for stock Moshi if unset.
+    params = dict(request.query)
+    if app.get("persona"):
+        params["text_prompt"] = app["persona"]
+    if app.get("voice"):
+        params["voice_prompt"] = app["voice"]
+    if app.get("audio_temp") is not None:
+        params["audio_temperature"] = str(app["audio_temp"])
     moshi_url = app["moshi_url"]
-    qs = request.query_string  # the client's generation params
-    # PersonaPlex needs a persona (text_prompt) + voice (voice_prompt) at connect;
-    # inject ours when the client didn't supply them (no-op for stock Moshi if unset).
-    extra = {}
-    if app.get("persona") and "text_prompt=" not in qs:
-        extra["text_prompt"] = app["persona"]
-    if app.get("voice") and "voice_prompt=" not in qs:
-        extra["voice_prompt"] = app["voice"]
-    pieces = [p for p in (qs, urlencode(extra)) if p]
-    if pieces:
-        moshi_url += ("&" if "?" in moshi_url else "?") + "&".join(pieces)
-    log.info("browser %s connected; bridging to %s", peer, moshi_url)
+    if params:
+        moshi_url += ("&" if "?" in moshi_url else "?") + urlencode(params)
+    log.info(
+        "browser %s connected; voice=%s audio_temp=%s",
+        peer, app.get("voice"), app.get("audio_temp"),
+    )
 
     suppress = {"on": False}
     bridge = Bridge(ws, moshi_url, suppress_downstream=lambda: suppress["on"])
@@ -627,6 +632,7 @@ def make_app(
     filler_text: str = "Let me look that up.",
     persona: str | None = None,
     voice: str | None = None,
+    audio_temp: float | None = None,
 ) -> web.Application:
     app = web.Application()
     app["moshi_url"] = moshi_url
@@ -637,7 +643,8 @@ def make_app(
     app["filler_text"] = filler_text
     app["filler_pcm"] = None
     app["persona"] = persona  # PersonaPlex text_prompt (conversational role); None = don't inject
-    app["voice"] = voice  # PersonaPlex voice_prompt file, e.g. "NATF2.pt"
+    app["voice"] = voice  # PersonaPlex voice_prompt file, e.g. "tara.wav"
+    app["audio_temp"] = audio_temp  # override audio sampling temperature; None = leave to client
     app.router.add_get("/api/chat", _ws_handler)
     app.router.add_get("/api/voice/config", _voice_config)
     app.router.add_get("/health", _health)
@@ -680,7 +687,12 @@ def main() -> int:
     ap.add_argument(
         "--voice",
         default=os.environ.get("MOSHI_VOICE"),
-        help="PersonaPlex voice_prompt file, e.g. NATF2.pt",
+        help="PersonaPlex voice_prompt file, e.g. tara.wav",
+    )
+    ap.add_argument(
+        "--audio-temp",
+        default=os.environ.get("MOSHI_AUDIO_TEMP"),
+        help="override PersonaPlex audio sampling temperature (lower keeps a cloned voice on target)",
     )
     ap.add_argument("--log-level", default="info")
     args = ap.parse_args()
@@ -705,6 +717,7 @@ def main() -> int:
             filler_text=args.filler,
             persona=args.persona,
             voice=args.voice,
+            audio_temp=float(args.audio_temp) if args.audio_temp else None,
         ),
         host=args.host,
         port=args.port,

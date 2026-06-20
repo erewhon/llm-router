@@ -150,9 +150,18 @@ rag-ingest-code path=".":
 rag-search query top-k="10":
     uv run llm-router-rag search-code "{{query}}" --top-k {{top-k}}
 
+# Ingest documents (PDF/DOCX/HTML/MD/TXT) into the `documents` collection
+rag-ingest-docs path topics="":
+    uv run llm-router-rag ingest-docs {{path}} --topics "{{topics}}"
+
+# Search the documents collection
+rag-search-docs query top-k="10":
+    uv run llm-router-rag search-docs "{{query}}" --top-k {{top-k}}
+
 # Qdrant collection stats
 rag-stats:
     @curl -s http://euclid.local:6333/collections/code | python3 -m json.tool
+    @curl -s http://euclid.local:6333/collections/documents | python3 -m json.tool
 
 # ─── Code quality ──────────────────────────────────────────────────────────────
 

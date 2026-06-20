@@ -40,6 +40,7 @@ rag = [
     "tree-sitter>=0.23",
     "tree-sitter-python>=0.23",
     "tree-sitter-bash>=0.23",
+    "docling>=2.0",
 ]
 photo-tag = [
     "Pillow>=11.0",

@@ -46,7 +46,8 @@ class OpenAIEmbedder:
     def embed(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
         if not texts:
             return []
-        prepared = [self.query_prefix + t for t in texts] if is_query and self.query_prefix else texts
+        add_prefix = is_query and self.query_prefix
+        prepared = [self.query_prefix + t for t in texts] if add_prefix else texts
         if self.single_stream:
             out: list[list[float]] = []
             for t in prepared:

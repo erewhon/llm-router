@@ -33,11 +33,13 @@ import contextlib
 import io
 import json
 import logging
+import os
 import pathlib
 import re
 import time
 import wave
 from collections.abc import Callable
+from urllib.parse import urlencode
 
 import httpx
 import numpy as np
@@ -488,8 +490,17 @@ async def _ws_handler(request: web.Request) -> web.WebSocketResponse:
     app = request.app
     peer = request.remote
     moshi_url = app["moshi_url"]
-    if request.query_string:  # forward the client's generation params to Moshi
-        moshi_url += ("&" if "?" in moshi_url else "?") + request.query_string
+    qs = request.query_string  # the client's generation params
+    # PersonaPlex needs a persona (text_prompt) + voice (voice_prompt) at connect;
+    # inject ours when the client didn't supply them (no-op for stock Moshi if unset).
+    extra = {}
+    if app.get("persona") and "text_prompt=" not in qs:
+        extra["text_prompt"] = app["persona"]
+    if app.get("voice") and "voice_prompt=" not in qs:
+        extra["voice_prompt"] = app["voice"]
+    pieces = [p for p in (qs, urlencode(extra)) if p]
+    if pieces:
+        moshi_url += ("&" if "?" in moshi_url else "?") + "&".join(pieces)
     log.info("browser %s connected; bridging to %s", peer, moshi_url)
 
     suppress = {"on": False}
@@ -614,6 +625,8 @@ def make_app(
     triggers: list[str] | None = None,
     web_dir: str | None = None,
     filler_text: str = "Let me look that up.",
+    persona: str | None = None,
+    voice: str | None = None,
 ) -> web.Application:
     app = web.Application()
     app["moshi_url"] = moshi_url
@@ -623,6 +636,8 @@ def make_app(
     app["triggers"] = triggers or list(DEFAULT_TRIGGERS)
     app["filler_text"] = filler_text
     app["filler_pcm"] = None
+    app["persona"] = persona  # PersonaPlex text_prompt (conversational role); None = don't inject
+    app["voice"] = voice  # PersonaPlex voice_prompt file, e.g. "NATF2.pt"
     app.router.add_get("/api/chat", _ws_handler)
     app.router.add_get("/api/voice/config", _voice_config)
     app.router.add_get("/health", _health)
@@ -657,6 +672,16 @@ def main() -> int:
     ap.add_argument("--tts-url", default=None, help="Orpheus base for the expert path")
     ap.add_argument("--web-dir", default=None, help="serve a web-client dist from / (frontend)")
     ap.add_argument("--filler", default="Let me look that up.", help="filler phrase during TTFT")
+    ap.add_argument(
+        "--persona",
+        default=os.environ.get("MOSHI_PERSONA"),
+        help="PersonaPlex text_prompt (conversational role) injected at connect",
+    )
+    ap.add_argument(
+        "--voice",
+        default=os.environ.get("MOSHI_VOICE"),
+        help="PersonaPlex voice_prompt file, e.g. NATF2.pt",
+    )
     ap.add_argument("--log-level", default="info")
     args = ap.parse_args()
     logging.basicConfig(
@@ -678,6 +703,8 @@ def main() -> int:
             stt_model=args.stt_model,
             web_dir=args.web_dir,
             filler_text=args.filler,
+            persona=args.persona,
+            voice=args.voice,
         ),
         host=args.host,
         port=args.port,

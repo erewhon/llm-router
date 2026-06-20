@@ -7,6 +7,29 @@ conversation and quick replies, and **hands off** to the LLM fleet (via the rout
 auto-router) when a query needs real reasoning. Long-form answers are spoken with a
 dedicated **TTS** layer.
 
+## Conversational backend: PersonaPlex (replaced Moshi, 2026-06-19)
+The conversational layer is now **NVIDIA PersonaPlex** (`nvidia/personaplex-7b-v1`), a
+Moshi-architecture 7B with much better turn-taking/interruption + a **text persona** and
+**voice selection**. It serves the *same* `python -m moshi.server` `/api/chat` protocol on
+:8998, so the proxy + FE are unchanged — only the backend swapped.
+- **Deploy:** PyTorch/cu130 venv at `~/code/personaplex/.venv` (torch 2.12.1+cu130 runs on
+  the GB10 with **no** cudarc-style patch — unlike the Rust build). `personaplex.service`
+  on hypatia (:8998, `--ssl`, `--device cuda`); `moshi-backend` (Rust q8) disabled as
+  rollback. **bf16 ~15 GB VRAM.** Install gotcha: `pip install ./moshi` downgrades torch to
+  CPU 2.4.1 → reinstall `torch==2.12.1 --index-url .../cu130` *after* moshi (README's
+  Blackwell order).
+- **Two upstream patches needed** (in `moshi/server.py`, applied to the venv copy + repo
+  source): (1) `opus_loop` does `pcm.shape` but `sphn 0.1.12`'s `read_pcm()` returns
+  `None` when idle → guard `if pcm is None or pcm.shape[-1] == 0`. (2) `is_alive()` wrapped
+  `ws.receive()` in `asyncio.wait_for(...,0.01)`; the cancelled receives corrupt the aiohttp
+  websocket and close the session right after the handshake → replaced the receive with
+  `raise asyncio.TimeoutError()` (treat as alive; still aborts on `close`/`ws.closed`).
+- **Persona + voice are per-connect query params** (`text_prompt`, `voice_prompt=NATF2.pt`)
+  — the proxy injects them from `MOSHI_PERSONA` / `MOSHI_VOICE` (in `~/voice/router.env`)
+  when the client doesn't supply them. Voices: NATF0-3/NATM0-3 (natural), VARF0-4/VARM0-4.
+- Verified end-to-end: PersonaPlex converses through voice.bcc.sh ("Hello, welcome to voice
+  AI…"), and the expert handoff (Qwen3.6→Orpheus) still works on top of it.
+
 ## Verified building blocks (measured 2026-06-18)
 
 | Layer | Component | Where | Status / perf |

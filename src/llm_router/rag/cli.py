@@ -11,6 +11,7 @@ from rich.progress import Progress
 from llm_router.rag.chunker import chunk_file, detect_lang
 from llm_router.rag.docparse import chunk_document, is_supported
 from llm_router.rag.embed import qwen3_embedder
+from llm_router.rag.rerank import rerank_hits
 from llm_router.rag.store import DOC_COLLECTION, QdrantStore
 
 DOC_QUERY_TASK = "Given a query, retrieve relevant document passages that answer it"
@@ -91,16 +92,21 @@ def ingest_code(repo_path: Path, repo_name: str | None, batch_size: int) -> None
 @click.argument("query", type=str)
 @click.option("--top-k", default=10, show_default=True)
 @click.option("--repo", default=None, help="Filter by repo name.")
-def search_code(query: str, top_k: int, repo: str | None) -> None:
+@click.option("--rerank/--no-rerank", default=True, help="Rerank hits with qwen3-reranker-4b.")
+@click.option("--candidates", default=20, show_default=True, help="ANN pool size to rerank over.")
+def search_code(query: str, top_k: int, repo: str | None, rerank: bool, candidates: int) -> None:
     """Search the code collection."""
     embedder = qwen3_embedder()
     store = QdrantStore()
     qv = embedder.embed([query], is_query=True)[0]
-    results = store.search_code(qv, top_k=top_k, repo=repo)
+    results = store.search_code(qv, top_k=candidates if rerank else top_k, repo=repo)
+    if rerank:
+        results = rerank_hits(query, results, top_k)
     for r in results:
+        rr = f" rerank={r['rerank_score']:.3f}" if "rerank_score" in r else ""
         header = (
             f"[bold]{r['repo']}/{r['path']}:{r['start_line']}-{r['end_line']} "
-            f"({r['chunk_kind']} {r['name']}) score={r['score']:.3f}[/bold]"
+            f"({r['chunk_kind']} {r['name']}) score={r['score']:.3f}{rr}[/bold]"
         )
         console.rule(header)
         text = r.get("text", "")
@@ -162,19 +168,28 @@ def ingest_docs(doc_path: Path, topics: str, batch_size: int) -> None:
 @click.argument("query", type=str)
 @click.option("--top-k", default=10, show_default=True)
 @click.option("--topic", "topics", multiple=True, help="Filter by topic tag (repeatable).")
-def search_docs(query: str, top_k: int, topics: tuple[str, ...]) -> None:
+@click.option("--rerank/--no-rerank", default=True, help="Rerank hits with qwen3-reranker-4b.")
+@click.option("--candidates", default=20, show_default=True, help="ANN pool size to rerank over.")
+def search_docs(
+    query: str, top_k: int, topics: tuple[str, ...], rerank: bool, candidates: int
+) -> None:
     """Search the documents collection."""
     embedder = qwen3_embedder(query_task=DOC_QUERY_TASK)
     store = QdrantStore(collection=DOC_COLLECTION)
     qv = embedder.embed([query], is_query=True)[0]
-    results = store.search_docs(qv, top_k=top_k, topics=list(topics) or None)
+    results = store.search_docs(
+        qv, top_k=candidates if rerank else top_k, topics=list(topics) or None
+    )
+    if rerank:
+        results = rerank_hits(query, results, top_k)
     for r in results:
+        rr = f" rerank={r['rerank_score']:.3f}" if "rerank_score" in r else ""
         page = f" p{r['page']}" if r.get("page") is not None else ""
         tags = ",".join(r.get("topics", []))
         tag_str = f" [{tags}]" if tags else ""
         header = (
             f"[bold]{r['source']}#{r['chunk_index']}{page}{tag_str} "
-            f"score={r['score']:.3f}[/bold]  {r.get('title', '')}"
+            f"score={r['score']:.3f}{rr}[/bold]  {r.get('title', '')}"
         )
         console.rule(header)
         text = r.get("text", "")

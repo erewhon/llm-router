@@ -599,6 +599,8 @@ async def _voice_config(request: web.Request) -> web.Response:
             "llm": pcfg.llm_model,
             "filler": app["filler_text"],
             "handoff_enabled": bool(app.get("stt_url") and pcfg.router_key),
+            "moshi_buffer_ms": app["moshi_buffer_ms"],
+            "expert_buffer_ms": app["expert_buffer_ms"],
         }
     )
 
@@ -633,6 +635,8 @@ def make_app(
     persona: str | None = None,
     voice: str | None = None,
     audio_temp: float | None = None,
+    moshi_buffer_ms: int = 240,
+    expert_buffer_ms: int = 500,
 ) -> web.Application:
     app = web.Application()
     app["moshi_url"] = moshi_url
@@ -645,6 +649,8 @@ def make_app(
     app["persona"] = persona  # PersonaPlex text_prompt (conversational role); None = don't inject
     app["voice"] = voice  # PersonaPlex voice_prompt file, e.g. "tara.wav"
     app["audio_temp"] = audio_temp  # override audio sampling temperature; None = leave to client
+    app["moshi_buffer_ms"] = moshi_buffer_ms  # FE playback pre-roll for conversational audio
+    app["expert_buffer_ms"] = expert_buffer_ms  # FE playback pre-roll for expert TTS audio
     app.router.add_get("/api/chat", _ws_handler)
     app.router.add_get("/api/voice/config", _voice_config)
     app.router.add_get("/health", _health)
@@ -694,6 +700,16 @@ def main() -> int:
         default=os.environ.get("MOSHI_AUDIO_TEMP"),
         help="override PersonaPlex audio sampling temperature (lower keeps a cloned voice on target)",
     )
+    ap.add_argument(
+        "--moshi-buffer-ms",
+        default=os.environ.get("MOSHI_BUFFER_MS"),
+        help="FE playback pre-roll (ms) for conversational audio (higher = smoother, more latency)",
+    )
+    ap.add_argument(
+        "--expert-buffer-ms",
+        default=os.environ.get("EXPERT_BUFFER_MS"),
+        help="FE playback pre-roll (ms) for expert TTS audio",
+    )
     ap.add_argument("--log-level", default="info")
     args = ap.parse_args()
     logging.basicConfig(
@@ -718,6 +734,8 @@ def main() -> int:
             persona=args.persona,
             voice=args.voice,
             audio_temp=float(args.audio_temp) if args.audio_temp else None,
+            moshi_buffer_ms=int(args.moshi_buffer_ms) if args.moshi_buffer_ms else 240,
+            expert_buffer_ms=int(args.expert_buffer_ms) if args.expert_buffer_ms else 500,
         ),
         host=args.host,
         port=args.port,

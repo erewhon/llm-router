@@ -19,6 +19,8 @@ export type VoiceConfig = {
   llm: string;
   filler: string;
   handoff_enabled: boolean;
+  moshi_buffer_ms?: number;
+  expert_buffer_ms?: number;
 };
 
 // Default Moshi generation params (mirrors the upstream client) — the proxy
@@ -42,9 +44,11 @@ const buildWsUrl = (): string => {
   return url.toString();
 };
 
-// Playback jitter-buffer pre-roll: small for live Moshi (low latency), larger
-// during the one-way expert answer to absorb network jitter / per-sentence gaps.
-const MOSHI_BUFFER_MS = 80;
+// Playback jitter-buffer pre-roll defaults (ms). Conversational needs enough to
+// ride out PersonaPlex's per-frame timing variance + network jitter (too small =
+// choppy); the one-way expert answer can afford more. Overridable via the server
+// config (MOSHI_BUFFER_MS / EXPERT_BUFFER_MS), so they're tunable without a rebuild.
+const MOSHI_BUFFER_MS = 240;
 const EXPERT_BUFFER_MS = 500;
 
 const phaseFromEvent = (p?: VoiceEvent["phase"]): Phase | null => {
@@ -79,6 +83,7 @@ export function useVoice() {
   const srcRef = useRef<VoiceSource>("moshi"); // current assistant text owner
   const idRef = useRef(0);
   const levelThrottle = useRef(0);
+  const bufRef = useRef({ moshi: MOSHI_BUFFER_MS, expert: EXPERT_BUFFER_MS }); // from server config
 
   const nextId = () => ++idRef.current;
 
@@ -111,12 +116,12 @@ export function useVoice() {
       const nextPhase = phaseFromEvent(ev.phase);
       if (nextPhase) setPhase(nextPhase);
       if (ev.phase === "trigger" || ev.phase === "thinking" || ev.phase === "speaking") {
-        if (srcRef.current !== "expert") engineRef.current?.setPlaybackBuffer(EXPERT_BUFFER_MS);
+        if (srcRef.current !== "expert") engineRef.current?.setPlaybackBuffer(bufRef.current.expert);
         srcRef.current = "expert";
         setSpeaker("expert");
         setArmed(false);
       } else if (ev.phase === "moshi" || ev.phase === "cancelled") {
-        if (srcRef.current !== "moshi") engineRef.current?.setPlaybackBuffer(MOSHI_BUFFER_MS);
+        if (srcRef.current !== "moshi") engineRef.current?.setPlaybackBuffer(bufRef.current.moshi);
         srcRef.current = "moshi";
         setSpeaker("moshi");
       }
@@ -168,7 +173,13 @@ export function useVoice() {
       const cfg = await fetch("/api/voice/config")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null);
-      if (cfg) setConfig(cfg);
+      if (cfg) {
+        setConfig(cfg);
+        bufRef.current = {
+          moshi: cfg.moshi_buffer_ms ?? MOSHI_BUFFER_MS,
+          expert: cfg.expert_buffer_ms ?? EXPERT_BUFFER_MS,
+        };
+      }
 
       const engine = new AudioEngine({
         onMicChunk: (pages) => {
@@ -187,6 +198,7 @@ export function useVoice() {
       });
       engineRef.current = engine;
       await engine.start(); // mic permission + audio graph (must follow a user gesture)
+      engine.setPlaybackBuffer(bufRef.current.moshi); // conversational buffer from the start (not the 80ms worklet default)
 
       const ws = new WebSocket(buildWsUrl());
       ws.binaryType = "arraybuffer";

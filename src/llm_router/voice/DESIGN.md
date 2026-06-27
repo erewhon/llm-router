@@ -60,7 +60,7 @@ training) — load a reference clip as the voice prompt. Recipe used:
 | Conversation | **Moshi q8** (full-duplex S2S) | hypatia `moshi-backend.service` :8998 | live, ~10 GB, sub-200 ms, systemd unit |
 | Reasoning | **Router auto-router** (`auto`/`auto-full`) | euclid+delphi :4010 | live — classifies complexity, routes to Qwen3.6 / Nemotron / Zen |
 | TTS (long-form) | **Orpheus 3B** | euclid Arc/OpenVINO :5397 | works but **~0.5× realtime** on Arc → move to CUDA |
-| STT (non-Moshi input) | **Whisper large-v3-turbo** | euclid :5404 (`stt`) | live |
+| STT (non-Moshi input) | **Whisper large-v3-turbo** | euclid :5399 (`stt`) | live |
 
 ### TTS decision
 - **Fish S2-Pro**: best quality but **~22 GB + ~0.6–1 tok/s** (no compile) — too heavy/slow for co-residency. Reserve for a dedicated 24 GB box / offline.

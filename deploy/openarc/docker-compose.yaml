@@ -1,0 +1,48 @@
+# OpenArc — embedding + reranker on euclid's Intel Arc Pro B50 (Battlemage).
+#
+# Tracks what was previously an untracked `docker run --restart unless-stopped`.
+# Reconstructed from the live container with `assaflavie/runlike` on 2026-06-26,
+# minus Orpheus (TTS moved to hypatia's CUDA Orpheus; dropped from autoload).
+#
+# The image is built locally on euclid (see /opt/OpenArc/Battlemage.Dockerfile),
+# not pulled from a registry.
+#
+# Secret: OPENARC_API_KEY is read from a local, gitignored .env — copy
+# .env.example to .env and fill it in (store the value in `ho secret` and
+# generate .env from it). Never commit the real key.
+#
+# Deploy on euclid:
+#   cd deploy/openarc && cp .env.example .env && $EDITOR .env
+#   docker compose up -d
+#
+# Add/remove autoloaded models by overriding OPENARC_AUTOLOAD_MODEL in .env.
+
+services:
+  openarc:
+    image: openarc:battlemage-multiautoload-20260501
+    container_name: openarc
+    restart: unless-stopped
+    command: ["/usr/local/bin/start-openarc.sh"]
+    working_dir: /app
+    ports:
+      - "5404:8000"
+    devices:
+      - "/dev/dri:/dev/dri"
+    volumes:
+      - /data/ai/openarc-models:/models
+      - /data/ai/openarc-config:/persist
+    environment:
+      - OPENARC_API_KEY=${OPENARC_API_KEY:?set OPENARC_API_KEY in deploy/openarc/.env}
+      - OPENARC_AUTOLOAD_MODEL=${OPENARC_AUTOLOAD_MODEL:-qwen3-embedding-4b,qwen3-reranker-4b}
+    healthcheck:
+      # OpenArc is a Python FastAPI app (python3 present); avoids a curl dependency.
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/v1/models')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s  # model autoload on the Arc takes ~20s+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

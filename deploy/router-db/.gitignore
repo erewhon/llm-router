@@ -1,0 +1,2 @@
+# May hold POSTGRES_PASSWORD for a fresh init — never commit
+.env

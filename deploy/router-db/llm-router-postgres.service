@@ -1,0 +1,28 @@
+# LLM Router Postgres — euclid. Gates the DB container on the NetBird mesh IP
+# so its mesh-bound port (100.72.235.6:5433, used by delphi's HA router) binds
+# reliably across reboots. Docker auto-start is disabled (compose restart: no);
+# this unit owns the lifecycle.
+#
+# Install on euclid:
+#   sudo cp deploy/router-db/llm-router-postgres.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now llm-router-postgres
+
+[Unit]
+Description=LLM Router Postgres (gated on NetBird mesh IP)
+Requires=docker.service
+After=docker.service network-online.target netbird.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/home/erewhon/Projects/erewhon/llm-router/deploy/router-db
+# netbird.service active != wt0 has its mesh IP yet — wait for the actual IP.
+ExecStartPre=/home/erewhon/Projects/erewhon/llm-router/deploy/router-db/wait-netbird-ip.sh 100.72.235.6
+# Force-recreate so the mesh port binds cleanly even over a stale mapping.
+ExecStart=/usr/bin/docker compose up -d --force-recreate --remove-orphans
+ExecStop=/usr/bin/docker compose stop
+
+[Install]
+WantedBy=multi-user.target

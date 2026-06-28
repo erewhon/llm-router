@@ -1,0 +1,43 @@
+# llm-router-postgres — the Go router's database (db `router`) on euclid.
+# Shared by the HA router pair: euclid's router connects via 127.0.0.1:5433,
+# delphi's via the NetBird mesh IP (default 100.72.235.6:5433).
+#
+# IMPORTANT: restart is "no" on purpose. Docker must NOT auto-start this at
+# boot — the companion systemd unit (llm-router-postgres.service) starts it
+# only AFTER NetBird has assigned the mesh IP, then force-recreates so the
+# mesh port binds. Boot race being worked around: if Docker starts this before
+# NetBird brings up 100.72.235.6, the `-p <mesh>:5433` bind fails and Docker
+# silently drops the WHOLE port mapping (a plain restart won't re-bind — only a
+# recreate does). See memory: router-db-euclid.
+#
+# Data is the external named volume `llm-router-pgdata` (table router_requests
+# = the reqlog). No POSTGRES_PASSWORD here: the volume is already initialized,
+# so it's init-only and unused at runtime. For a FRESH DB on a new host, add
+# `-e POSTGRES_PASSWORD=...` (see .env.example).
+#
+# Prefer `sudo systemctl restart llm-router-postgres` over a bare compose up,
+# so the NetBird IP gate runs.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: llm-router-postgres
+    restart: "no"
+    environment:
+      - POSTGRES_USER=router
+      - POSTGRES_DB=router
+    volumes:
+      - llm-router-pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+      - "${ROUTER_DB_MESH_IP:-100.72.235.6}:5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "router"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  llm-router-pgdata:
+    external: true

@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""bench-orpheus-mlx.py — HONEST latency bench for Orpheus TTS on an mlx-audio server.
+"""bench-orpheus-mlx.py — HONEST RTF bench for Orpheus TTS on an mlx-audio server.
 
-Orpheus emits substantial leading/trailing SILENCE (~0.6s lead + ~0.6s trail was
-measured on 4-bit), which inflates any RTF computed against the raw clip length.
-This bench measures the *speech* portion and reports both, plus a real
-time-to-first-speech (streams the response and timestamps when the first
-non-silent sample actually arrives — not just the HTTP header).
+Orpheus emits substantial leading/trailing SILENCE (~25-35% of the clip), which
+inflates any RTF computed against the raw clip length. This bench trims the
+silence and reports speech-only RTF alongside the raw (optimistic) one.
 
 Per prompt it reports:
   sRTF  = compute / SPEECH duration      <- the honest throughput number
   rRTF  = compute / raw (incl. silence)  <- what a naive bench shows (optimistic)
-  TTFS  = wall-clock to first speech sample transmitted (perceived onset)
-  lead/trail = silence trimmed off each end
+  compute = wall-clock to synthesize the whole clip
+  speech/total = trimmed vs raw duration
+  lead/trail   = silence trimmed off each end (verify against the wav files)
+
+Note on latency: the server returns WAV, whose length-prefixed header can't be
+written until synthesis finishes, so it buffers the whole clip — there is no
+progressive audio. First-audio latency therefore ~= `compute` (you wait for the
+full synth), and on playback the clip still opens with `lead` seconds of silence.
+To feel responsive you must chunk the input text into short utterances; a
+streaming-onset metric would be meaningless against this non-streaming path.
 
 Deps: soundfile + numpy (already in the mlx-audio venv). HTTP via stdlib urllib.
 
-Prereqs (on the Mac), same as the shell bench:
+Prereqs (on the Mac), same as before:
   uv venv --python 3.12 && source .venv/bin/activate
   uv pip install -U 'mlx-audio[all]' 'setuptools<81'
   # server crashes on mlx >= 0.31.2 (thread-local streams); pin the matched pair:
@@ -29,7 +35,7 @@ Usage:
 
 NOTE: requests are serial on purpose — concurrent requests crash the server
       (Blaizzy/mlx-audio#638). In production you'd also TRIM the leading silence
-      before playback (it's a known Orpheus artifact and pure onset latency).
+      before playback (a known Orpheus artifact and pure onset latency).
 """
 from __future__ import annotations
 
@@ -58,18 +64,9 @@ PROMPTS = [
     "To be, or not to be, that is the question worth asking today.",
 ]
 
-# subtype -> bytes per sample, to map a sample index back to a byte offset
-_BPS = {"PCM_U8": 1, "PCM_S8": 1, "PCM_16": 2, "PCM_24": 3, "PCM_32": 4,
-        "FLOAT": 4, "DOUBLE": 8}
 
-
-def synth(text: str) -> tuple[bytes, float, list[tuple[int, float]]]:
-    """POST to /v1/audio/speech, streaming the reply.
-
-    Returns (wav_bytes, compute_seconds, arrivals) where arrivals is a list of
-    (cumulative_bytes_received, wall_clock_timestamp) so we can later find when
-    a given byte offset landed.
-    """
+def synth(text: str) -> tuple[bytes, float]:
+    """POST to /v1/audio/speech; return (wav_bytes, compute_seconds)."""
     body = json.dumps({"model": MODEL, "input": text, "voice": VOICE}).encode()
     req = urllib.request.Request(
         f"{SERVER}/v1/audio/speech",
@@ -77,30 +74,16 @@ def synth(text: str) -> tuple[bytes, float, list[tuple[int, float]]]:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    arrivals: list[tuple[int, float]] = []
-    chunks: list[bytes] = []
-    cum = 0
     t0 = time.perf_counter()
     with urllib.request.urlopen(req) as resp:
-        while True:
-            chunk = resp.read(4096)
-            if not chunk:
-                break
-            cum += len(chunk)
-            chunks.append(chunk)
-            arrivals.append((cum, time.perf_counter() - t0))  # seconds since request start
-    compute = time.perf_counter() - t0
-    return b"".join(chunks), compute, arrivals
+        data = resp.read()
+    return data, time.perf_counter() - t0
 
 
-def analyze(data: bytes):
-    """Return (sr, total_s, lead_s, trail_s, speech_s, first_speech_byte)."""
+def analyze(data: bytes) -> tuple[float, float, float, float]:
+    """Return (total_s, lead_s, trail_s, speech_s) by trimming near-silence."""
     audio, sr = sf.read(io.BytesIO(data), always_2d=True)
-    frames, ch = audio.shape
-    sub = sf.info(io.BytesIO(data)).subtype
-    bps = _BPS.get(sub, 2)
-    data_offset = max(0, len(data) - frames * ch * bps)  # WAV header (+pre-chunks)
-
+    frames, _ch = audio.shape
     mono = audio.mean(axis=1)
     amp = np.abs(mono)
     peak = float(amp.max()) if frames else 0.0
@@ -108,13 +91,9 @@ def analyze(data: bytes):
 
     total_s = frames / sr if sr else 0.0
     if len(voiced) == 0:  # all silence — degrade gracefully
-        return sr, total_s, total_s, 0.0, 0.0, len(data)
+        return total_s, total_s, 0.0, 0.0
     first, last = int(voiced[0]), int(voiced[-1])
-    lead_s = first / sr
-    trail_s = (frames - 1 - last) / sr
-    speech_s = (last - first + 1) / sr
-    first_speech_byte = data_offset + first * ch * bps
-    return sr, total_s, lead_s, trail_s, speech_s, first_speech_byte
+    return total_s, first / sr, (frames - 1 - last) / sr, (last - first + 1) / sr
 
 
 def main() -> None:
@@ -124,34 +103,29 @@ def main() -> None:
     synth("warmup one two three")
     print()
 
-    hdr = ("sRTF", "rRTF", "TTFS", "compute", "speech", "total", "lead", "trail", "prompt")
-    print(f"{hdr[0]:<6}{hdr[1]:<6}{hdr[2]:<8}{hdr[3]:<9}{hdr[4]:<8}"
-          f"{hdr[5]:<8}{hdr[6]:<7}{hdr[7]:<7}{hdr[8]}")
+    hdr = ("sRTF", "rRTF", "compute", "speech", "total", "lead", "trail", "prompt")
+    print(f"{hdr[0]:<6}{hdr[1]:<6}{hdr[2]:<9}{hdr[3]:<8}"
+          f"{hdr[4]:<8}{hdr[5]:<7}{hdr[6]:<7}{hdr[7]}")
 
-    tot_c = tot_speech = tot_total = tot_ttfs = 0.0
+    tot_c = tot_speech = tot_total = 0.0
     for p in PROMPTS:
-        data, compute, arrivals = synth(p)
-        _sr, total_s, lead_s, trail_s, speech_s, first_byte = analyze(data)
-        # wall-clock from request start until the first speech sample was transmitted
-        onset = next((rel for cum, rel in arrivals if cum >= first_byte), compute)
-
+        data, compute = synth(p)
+        total_s, lead_s, trail_s, speech_s = analyze(data)
         srtf = compute / speech_s if speech_s else float("nan")
         rrtf = compute / total_s if total_s else float("nan")
-        print(f"{srtf:<6.3f}{rrtf:<6.3f}{onset:<8.3f}{compute:<9.3f}"
-              f"{speech_s:<8.3f}{total_s:<8.3f}{lead_s:<7.3f}{trail_s:<7.3f}{p[:40]}")
+        print(f"{srtf:<6.3f}{rrtf:<6.3f}{compute:<9.3f}{speech_s:<8.3f}"
+              f"{total_s:<8.3f}{lead_s:<7.3f}{trail_s:<7.3f}{p[:40]}")
         tot_c += compute
         tot_speech += speech_s
         tot_total += total_s
-        tot_ttfs += onset
 
-    n = len(PROMPTS)
     print()
     print(f"Speech-only : {tot_c:.3f}s compute for {tot_speech:.3f}s speech  "
           f"->  RTF {tot_c / tot_speech:.3f}  ({tot_speech / tot_c:.2f}x realtime)   <- honest")
     print(f"Raw (silence): {tot_c:.3f}s compute for {tot_total:.3f}s audio   "
           f"->  RTF {tot_c / tot_total:.3f}  ({tot_total / tot_c:.2f}x realtime)   <- optimistic")
-    print(f"Speech is {100 * tot_speech / tot_total:.0f}% of output; "
-          f"mean time-to-first-speech {tot_ttfs / n:.3f}s")
+    print(f"Speech is {100 * tot_speech / tot_total:.0f}% of output "
+          f"(the rest is lead/trail silence). First-audio ~= compute (server buffers WAV).")
 
 
 if __name__ == "__main__":
